@@ -124,8 +124,13 @@ impl App {
                 if let Some(game) = &mut self.game {
                     if game.can_play() {
                         let played = game.play_selected();
-                        let score_result =
-                            balatrust_core::scoring::calculate_score(&played, &game.hand_levels);
+                        let score_result = balatrust_core::scoring::calculate_score_with_jokers(
+                            &played,
+                            &game.hand_levels,
+                            &game.jokers,
+                            &game.hand, // remaining hand = held cards
+                            game.discards_remaining,
+                        );
                         game.add_score(score_result.final_score);
                         game.use_hand();
 
@@ -180,6 +185,29 @@ impl App {
                     game.toggle_select(idx);
                 }
             }
+            Some(ScreenAction::BuyShopItem(idx)) => {
+                if let Some(game) = &mut self.game {
+                    game.buy_shop_item(idx);
+                }
+            }
+            Some(ScreenAction::SellJoker(idx)) => {
+                if let Some(game) = &mut self.game {
+                    game.sell_joker(idx);
+                }
+            }
+            Some(ScreenAction::RerollShop) => {
+                if let Some(game) = &mut self.game {
+                    game.reroll_shop();
+                }
+            }
+            Some(ScreenAction::UseConsumable(idx)) => {
+                if let Some(game) = &mut self.game {
+                    // Try planet first, then tarot
+                    if !game.use_planet(idx) {
+                        game.use_tarot(idx);
+                    }
+                }
+            }
             None => {}
         }
 
@@ -200,4 +228,8 @@ pub enum ScreenAction {
     LeaveShop,
     BackToMenu,
     ToggleCard(usize),
+    BuyShopItem(usize),
+    SellJoker(usize),
+    RerollShop,
+    UseConsumable(usize),
 }

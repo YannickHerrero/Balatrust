@@ -10,6 +10,7 @@ use balatrust_core::scoring::ScoreResult;
 use balatrust_core::{PlayingCard, RunState};
 use balatrust_widgets::hand::HandWidget;
 use balatrust_widgets::hud::HudWidget;
+use balatrust_widgets::joker_bar::JokerBarWidget;
 use balatrust_widgets::score_display::ScoreDisplayWidget;
 use balatrust_widgets::theme::Theme;
 
@@ -52,10 +53,11 @@ impl PlayRoundScreen {
             None => return,
         };
 
-        // Main layout: header | game area | footer
+        // Main layout: header | joker bar | last score | game area | footer
         let main_chunks = Layout::vertical([
             Constraint::Length(3), // Header (blind info)
-            Constraint::Length(3), // Last played cards info
+            Constraint::Length(5), // Joker bar
+            Constraint::Length(2), // Last played cards info
             Constraint::Min(0),    // Hand area
             Constraint::Length(1), // HUD
             Constraint::Length(2), // Help
@@ -65,15 +67,19 @@ impl PlayRoundScreen {
         // === Header: Blind info ===
         self.render_header(frame, game, main_chunks[0]);
 
+        // === Joker bar ===
+        let joker_bar = JokerBarWidget::new(&game.jokers, game.max_jokers);
+        frame.render_widget(joker_bar, main_chunks[1]);
+
         // === Last score display ===
-        self.render_last_score(frame, main_chunks[1]);
+        self.render_last_score(frame, main_chunks[2]);
 
         // === Game area: score panel + hand ===
         let game_area = Layout::horizontal([
             Constraint::Min(0),     // Hand cards
             Constraint::Length(22), // Score panel
         ])
-        .split(main_chunks[2]);
+        .split(main_chunks[3]);
 
         // Render hand
         self.render_hand(frame, game, game_area[0]);
@@ -90,7 +96,7 @@ impl PlayRoundScreen {
         )
         .can_play(game.can_play())
         .can_discard(game.can_discard());
-        frame.render_widget(hud, main_chunks[3]);
+        frame.render_widget(hud, main_chunks[4]);
 
         // === Help line ===
         let help = Paragraph::new(Line::from(vec![
@@ -109,7 +115,7 @@ impl PlayRoundScreen {
             Span::styled("] Clear", Style::default().fg(Theme::DIM_TEXT)),
         ]))
         .alignment(Alignment::Center);
-        frame.render_widget(help, main_chunks[4]);
+        frame.render_widget(help, main_chunks[5]);
 
         // Blind beaten popup
         if self.blind_just_beaten {

@@ -2,6 +2,7 @@ use std::collections::HashMap;
 
 use crate::card::PlayingCard;
 use crate::hand::{detect_hand, PokerHand};
+use crate::joker::{evaluate_joker, Joker, JokerContext, JokerEffect, JokerType};
 
 /// A single step in the scoring process, used for animation
 #[derive(Debug, Clone)]
@@ -162,6 +163,196 @@ pub fn calculate_score(played_cards: &[PlayingCard], hand_levels: &HandLevels) -
         total_chips,
         total_mult,
         final_score,
+    }
+}
+
+/// Calculate the score with joker effects applied.
+/// This is the full scoring pipeline used during gameplay.
+pub fn calculate_score_with_jokers(
+    played_cards: &[PlayingCard],
+    hand_levels: &HandLevels,
+    jokers: &[Joker],
+    held_cards: &[PlayingCard],
+    discards_remaining: u8,
+) -> ScoreResult {
+    let hand_result = detect_hand(played_cards);
+    let hand_type = hand_result.hand_type;
+    let scoring_indices = hand_result.scoring_indices;
+
+    let mut steps = Vec::new();
+
+    // Step 1: Base hand chips and mult
+    let base_chips = hand_levels.chips_for(&hand_type);
+    let base_mult = hand_levels.mult_for(&hand_type);
+
+    steps.push(ScoreStep::BaseHand {
+        hand_type,
+        chips: base_chips,
+        mult: base_mult,
+    });
+
+    let mut total_chips = base_chips;
+    let mut total_mult_f: f64 = base_mult as f64;
+
+    // Step 2: Process each scoring card
+    for &idx in &scoring_indices {
+        let card = &played_cards[idx];
+
+        let card_chips = card.chip_value();
+        if card_chips > 0 {
+            steps.push(ScoreStep::CardChips {
+                card_index: idx,
+                chips: card_chips,
+            });
+            total_chips += card_chips;
+        }
+
+        let card_mult = card.mult_bonus();
+        if card_mult > 0 {
+            steps.push(ScoreStep::CardMult {
+                card_index: idx,
+                mult: card_mult,
+            });
+            total_mult_f += card_mult as f64;
+        }
+
+        let card_x_mult = card.x_mult();
+        if (card_x_mult - 1.0).abs() > f64::EPSILON {
+            steps.push(ScoreStep::CardXMult {
+                card_index: idx,
+                x_mult: card_x_mult,
+            });
+            total_mult_f *= card_x_mult;
+        }
+    }
+
+    // Stone cards that always score
+    for (idx, card) in played_cards.iter().enumerate() {
+        if card.always_scores() && !scoring_indices.contains(&idx) {
+            let card_chips = card.chip_value();
+            if card_chips > 0 {
+                steps.push(ScoreStep::CardChips {
+                    card_index: idx,
+                    chips: card_chips,
+                });
+                total_chips += card_chips;
+            }
+        }
+    }
+
+    // Step 3: Process jokers left-to-right
+    let ctx = JokerContext {
+        played_cards,
+        scoring_indices: &scoring_indices,
+        hand_type,
+        held_cards,
+        discards_remaining,
+        num_played: played_cards.len(),
+    };
+
+    for (ji, joker) in jokers.iter().enumerate() {
+        let next_type = if joker.joker_type == JokerType::Blueprint {
+            jokers.get(ji + 1).map(|j| j.joker_type)
+        } else {
+            None
+        };
+
+        let effect = evaluate_joker(joker, &ctx, next_type);
+        apply_joker_effect(effect, ji, &mut total_chips, &mut total_mult_f, &mut steps);
+    }
+
+    let total_mult = total_mult_f.max(1.0).ceil() as u64;
+    let final_score = total_chips * total_mult;
+
+    ScoreResult {
+        hand_type,
+        scoring_indices,
+        steps,
+        total_chips,
+        total_mult,
+        final_score,
+    }
+}
+
+fn apply_joker_effect(
+    effect: JokerEffect,
+    joker_index: usize,
+    total_chips: &mut u64,
+    total_mult_f: &mut f64,
+    steps: &mut Vec<ScoreStep>,
+) {
+    match effect {
+        JokerEffect::AddChips(c) => {
+            steps.push(ScoreStep::JokerChips {
+                joker_index,
+                chips: c,
+            });
+            *total_chips += c;
+        }
+        JokerEffect::AddMult(m) => {
+            steps.push(ScoreStep::JokerMult {
+                joker_index,
+                mult: m,
+            });
+            *total_mult_f += m as f64;
+        }
+        JokerEffect::XMult(x) => {
+            steps.push(ScoreStep::JokerXMult {
+                joker_index,
+                x_mult: x,
+            });
+            *total_mult_f *= x;
+        }
+        JokerEffect::AddChipsPerCard {
+            card_indices,
+            chips_each,
+        } => {
+            let total = chips_each * card_indices.len() as u64;
+            steps.push(ScoreStep::JokerChips {
+                joker_index,
+                chips: total,
+            });
+            *total_chips += total;
+        }
+        JokerEffect::AddMultPerCard {
+            card_indices,
+            mult_each,
+        } => {
+            let total = mult_each * card_indices.len() as u64;
+            steps.push(ScoreStep::JokerMult {
+                joker_index,
+                mult: total,
+            });
+            *total_mult_f += total as f64;
+        }
+        JokerEffect::AddChipsAndMultPerCard {
+            card_indices,
+            chips_each,
+            mult_each,
+        } => {
+            let n = card_indices.len() as u64;
+            let total_c = chips_each * n;
+            let total_m = mult_each * n;
+            steps.push(ScoreStep::JokerChips {
+                joker_index,
+                chips: total_c,
+            });
+            *total_chips += total_c;
+            steps.push(ScoreStep::JokerMult {
+                joker_index,
+                mult: total_m,
+            });
+            *total_mult_f += total_m as f64;
+        }
+        JokerEffect::Retrigger { card_indices: _ } => {
+            // Retrigger: re-score the card chips/mult (simplified)
+            // Full retrigger would re-evaluate, but for MVP we add a flat bonus
+            steps.push(ScoreStep::JokerChips {
+                joker_index,
+                chips: 0,
+            });
+        }
+        JokerEffect::None => {}
     }
 }
 

@@ -3,8 +3,11 @@ use rand::{Rng, SeedableRng};
 
 use crate::blind::{self, BlindType, BossBlind};
 use crate::card::PlayingCard;
+use crate::consumable::{Consumable, ConsumableType, TarotCard};
 use crate::deck::Deck;
+use crate::joker::{Joker, JokerType};
 use crate::scoring::HandLevels;
+use crate::shop::{Shop, ShopItem};
 
 /// The phase within an ante
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -35,6 +38,10 @@ pub struct RunState {
     pub hand: Vec<PlayingCard>,
     pub selected_indices: Vec<usize>,
 
+    // Jokers and consumables
+    pub jokers: Vec<Joker>,
+    pub consumables: Vec<Consumable>,
+
     pub hand_levels: HandLevels,
     pub round_score: u64,
     pub score_target: u64,
@@ -44,6 +51,9 @@ pub struct RunState {
 
     /// Blinds beaten this ante (to track progression)
     pub blinds_beaten: u8,
+
+    /// Shop state
+    pub shop: Option<Shop>,
 }
 
 impl RunState {
@@ -74,12 +84,15 @@ impl RunState {
             deck,
             hand: Vec::new(),
             selected_indices: Vec::new(),
+            jokers: Vec::new(),
+            consumables: Vec::new(),
             hand_levels: HandLevels::new(),
             round_score: 0,
             score_target,
             boss_blind: boss,
             rng,
             blinds_beaten: 0,
+            shop: None,
         }
     }
 
@@ -108,6 +121,29 @@ impl RunState {
         // Reset deck and draw hand
         self.deck.reset_and_shuffle(&mut self.rng);
         self.hand = self.deck.draw(self.hand_size as usize);
+
+        // Apply suit debuffs from boss blinds
+        self.apply_boss_debuffs();
+    }
+
+    /// Apply boss blind suit debuffs to hand cards
+    fn apply_boss_debuffs(&mut self) {
+        if let BlindType::Boss(boss) = &self.blind_type {
+            let debuff_suit = match boss {
+                BossBlind::TheClub => Some(crate::card::Suit::Clubs),
+                BossBlind::TheGoad => Some(crate::card::Suit::Spades),
+                BossBlind::TheWindow => Some(crate::card::Suit::Diamonds),
+                BossBlind::TheHead => Some(crate::card::Suit::Hearts),
+                _ => None,
+            };
+            if let Some(suit) = debuff_suit {
+                for card in &mut self.hand {
+                    if card.suit == suit {
+                        card.debuffed = true;
+                    }
+                }
+            }
+        }
     }
 
     /// Skip the current blind
@@ -160,6 +196,14 @@ impl RunState {
         // Interest: $1 per $5 held, capped at $5
         let interest = (self.money / 5).min(5);
         reward += interest;
+        // Golden Joker: +$4 each
+        let golden_bonus: u32 = self
+            .jokers
+            .iter()
+            .filter(|j| j.joker_type == JokerType::GoldenJoker)
+            .count() as u32
+            * 4;
+        reward += golden_bonus;
         reward
     }
 
@@ -168,16 +212,31 @@ impl RunState {
         let reward = self.calculate_reward();
         self.money += reward;
         self.blinds_beaten += 1;
+
+        // Egg joker: +$3 sell value per round
+        for joker in &mut self.jokers {
+            if joker.joker_type == JokerType::Egg {
+                joker.bonus_sell += 3;
+            }
+        }
+
         self.ante_phase = AntePhase::Shop;
 
-        // Return hand cards to deck
+        // Return hand cards to deck and clear debuffs
+        for card in &mut self.hand {
+            card.debuffed = false;
+        }
         let hand_cards: Vec<PlayingCard> = self.hand.drain(..).collect();
         self.deck.discard_cards(&hand_cards);
         self.selected_indices.clear();
+
+        // Generate shop
+        self.shop = Some(Shop::generate(&mut self.rng, self.ante));
     }
 
     /// Leave the shop and advance to next blind
     pub fn leave_shop(&mut self) {
+        self.shop = None;
         self.advance_blind();
     }
 
@@ -206,7 +265,7 @@ impl RunState {
     pub fn discard_selected(&mut self) -> Vec<PlayingCard> {
         let mut discarded = Vec::new();
         let mut indices: Vec<usize> = self.selected_indices.clone();
-        indices.sort_unstable_by(|a, b| b.cmp(a)); // Sort descending to remove safely
+        indices.sort_unstable_by(|a, b| b.cmp(a));
 
         for &idx in &indices {
             if idx < self.hand.len() {
@@ -218,9 +277,12 @@ impl RunState {
         self.selected_indices.clear();
 
         // Draw replacements
-        let need = self.hand_size as usize - self.hand.len();
+        let need = (self.hand_size as usize).saturating_sub(self.hand.len());
         let mut drawn = self.deck.draw(need);
         self.hand.append(&mut drawn);
+
+        // Apply debuffs to new cards
+        self.apply_boss_debuffs();
 
         discarded
     }
@@ -250,6 +312,7 @@ impl RunState {
         if need > 0 {
             let mut drawn = self.deck.draw(need);
             self.hand.append(&mut drawn);
+            self.apply_boss_debuffs();
         }
     }
 
@@ -288,5 +351,201 @@ impl RunState {
     /// Can the player discard right now?
     pub fn can_discard(&self) -> bool {
         self.discards_remaining > 0 && !self.selected_indices.is_empty()
+    }
+
+    /// Buy a shop item
+    pub fn buy_shop_item(&mut self, index: usize) -> bool {
+        let price = if let Some(shop) = &self.shop {
+            if let Some(item) = shop.items.get(index) {
+                item.price()
+            } else {
+                return false;
+            }
+        } else {
+            return false;
+        };
+
+        if self.money < price {
+            return false;
+        }
+
+        // Check capacity
+        if let Some(shop) = &self.shop {
+            match &shop.items.get(index) {
+                Some(ShopItem::JokerItem(_)) => {
+                    if self.jokers.len() >= self.max_jokers as usize {
+                        return false;
+                    }
+                }
+                Some(ShopItem::ConsumableItem(_)) => {
+                    if self.consumables.len() >= self.max_consumables as usize {
+                        return false;
+                    }
+                }
+                None => return false,
+            }
+        }
+
+        if let Some(shop) = &mut self.shop {
+            if let Some(item) = shop.buy(index) {
+                self.money -= price;
+                match item {
+                    ShopItem::JokerItem(joker) => {
+                        self.jokers.push(joker);
+                    }
+                    ShopItem::ConsumableItem(consumable) => {
+                        self.consumables.push(consumable);
+                    }
+                }
+                return true;
+            }
+        }
+        false
+    }
+
+    /// Sell a joker
+    pub fn sell_joker(&mut self, index: usize) -> bool {
+        if index >= self.jokers.len() {
+            return false;
+        }
+        let joker = self.jokers.remove(index);
+        self.money += joker.total_sell_value();
+        true
+    }
+
+    /// Reroll the shop
+    pub fn reroll_shop(&mut self) -> bool {
+        let cost = if let Some(shop) = &self.shop {
+            shop.reroll_cost
+        } else {
+            return false;
+        };
+
+        if self.money < cost {
+            return false;
+        }
+
+        self.money -= cost;
+        let ante = self.ante;
+        if let Some(shop) = &mut self.shop {
+            let old_cost = shop.reroll_cost;
+            *shop = Shop::generate(&mut self.rng, ante);
+            shop.reroll_cost = old_cost + 1;
+        }
+        true
+    }
+
+    /// Use a consumable (planet card - level up)
+    pub fn use_planet(&mut self, consumable_index: usize) -> bool {
+        if consumable_index >= self.consumables.len() {
+            return false;
+        }
+        if let ConsumableType::Planet(planet) = self.consumables[consumable_index].consumable_type {
+            self.hand_levels.level_up(planet.hand_type());
+            self.consumables.remove(consumable_index);
+            true
+        } else {
+            false
+        }
+    }
+
+    /// Use a tarot card (apply enhancement to selected cards)
+    pub fn use_tarot(&mut self, consumable_index: usize) -> bool {
+        if consumable_index >= self.consumables.len() {
+            return false;
+        }
+        if let ConsumableType::Tarot(tarot) = self.consumables[consumable_index].consumable_type {
+            let (min, max) = tarot.cards_needed();
+            let selected_count = self.selected_indices.len();
+
+            // Check card count requirement
+            if min > 0 && (selected_count < min || selected_count > max) {
+                return false;
+            }
+
+            match tarot {
+                TarotCard::TheHierophant => {
+                    // Enhance to Bonus
+                    for &idx in &self.selected_indices.clone() {
+                        if idx < self.hand.len() {
+                            self.hand[idx].enhancement = Some(crate::card::Enhancement::Bonus);
+                        }
+                    }
+                }
+                TarotCard::TheEmpress => {
+                    // Enhance to Mult
+                    for &idx in &self.selected_indices.clone() {
+                        if idx < self.hand.len() {
+                            self.hand[idx].enhancement = Some(crate::card::Enhancement::Mult);
+                        }
+                    }
+                }
+                TarotCard::TheMagician => {
+                    // Enhance to Lucky
+                    for &idx in &self.selected_indices.clone() {
+                        if idx < self.hand.len() {
+                            self.hand[idx].enhancement = Some(crate::card::Enhancement::Lucky);
+                        }
+                    }
+                }
+                TarotCard::TheLover => {
+                    // Enhance to Wild
+                    if let Some(&idx) = self.selected_indices.first() {
+                        if idx < self.hand.len() {
+                            self.hand[idx].enhancement = Some(crate::card::Enhancement::Wild);
+                        }
+                    }
+                }
+                TarotCard::TheChariot => {
+                    // Enhance to Steel
+                    if let Some(&idx) = self.selected_indices.first() {
+                        if idx < self.hand.len() {
+                            self.hand[idx].enhancement = Some(crate::card::Enhancement::Steel);
+                        }
+                    }
+                }
+                TarotCard::Strength => {
+                    // Increase rank by 1
+                    for &idx in &self.selected_indices.clone() {
+                        if idx < self.hand.len() {
+                            let new_rank = match self.hand[idx].rank {
+                                crate::card::Rank::Two => crate::card::Rank::Three,
+                                crate::card::Rank::Three => crate::card::Rank::Four,
+                                crate::card::Rank::Four => crate::card::Rank::Five,
+                                crate::card::Rank::Five => crate::card::Rank::Six,
+                                crate::card::Rank::Six => crate::card::Rank::Seven,
+                                crate::card::Rank::Seven => crate::card::Rank::Eight,
+                                crate::card::Rank::Eight => crate::card::Rank::Nine,
+                                crate::card::Rank::Nine => crate::card::Rank::Ten,
+                                crate::card::Rank::Ten => crate::card::Rank::Jack,
+                                crate::card::Rank::Jack => crate::card::Rank::Queen,
+                                crate::card::Rank::Queen => crate::card::Rank::King,
+                                crate::card::Rank::King => crate::card::Rank::Ace,
+                                crate::card::Rank::Ace => crate::card::Rank::Two,
+                            };
+                            self.hand[idx].rank = new_rank;
+                        }
+                    }
+                }
+                TarotCard::TheHermit => {
+                    // Double money, max $20
+                    let gain = self.money.min(20);
+                    self.money += gain;
+                }
+                TarotCard::Temperance => {
+                    // Gain $ equal to joker sell values, max $50
+                    let total_sell: u32 = self.jokers.iter().map(|j| j.total_sell_value()).sum();
+                    self.money += total_sell.min(50);
+                }
+                _ => {
+                    // Other tarots not fully implemented yet
+                }
+            }
+
+            self.consumables.remove(consumable_index);
+            true
+        } else {
+            false
+        }
     }
 }
