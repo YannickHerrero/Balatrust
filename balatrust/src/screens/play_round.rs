@@ -145,7 +145,8 @@ impl PlayRoundScreen {
     /// Clean up after the scoring animation finishes (called by app after FinishScoring)
     pub fn finish_scoring(&mut self) {
         self.scoring_phase = ScoringPhase::NotScoring;
-        self.played_cards.clear();
+        // Keep played cards visible in the zone after scoring
+        self.last_played = self.played_cards.drain(..).collect();
         self.active_card_index = None;
         self.active_joker_index = None;
         self.popup = None;
@@ -490,8 +491,6 @@ impl PlayRoundScreen {
             None => return,
         };
 
-        let is_scoring = self.is_scoring();
-
         // ═══════════════════════════════════════════════════════════════
         // TOP-LEVEL: 3-COLUMN LAYOUT (Balatro-style)
         // ═══════════════════════════════════════════════════════════════
@@ -520,12 +519,7 @@ impl PlayRoundScreen {
 
         // ═══ CENTER AREA ═══
         let center = columns[1];
-
-        if is_scoring {
-            self.render_center_scoring(frame, game, center);
-        } else {
-            self.render_center_normal(frame, game, center);
-        }
+        self.render_center(frame, game, center);
 
         // ═══ OVERLAYS (on top of everything) ═══
 
@@ -540,11 +534,15 @@ impl PlayRoundScreen {
         }
     }
 
-    /// Render center area in normal (non-scoring) mode
-    fn render_center_normal(&mut self, frame: &mut Frame, game: &RunState, center: Rect) {
-        // Center vertical layout:
+    /// Render center area (unified layout — played cards zone always visible)
+    fn render_center(&mut self, frame: &mut Frame, game: &RunState, center: Rect) {
+        let is_scoring = self.is_scoring();
+
+        // Center vertical layout (always the same structure):
         // ┌─────────────────────────────────────┐
         // │ Joker slots row (6)                  │
+        // │ Played cards zone (8)  <- always     │
+        // │ Score info line (2)                  │
         // │ Hand type preview (1)                │
         // │ Player's hand cards (flex)           │
         // │ Card counter (1)                     │
@@ -554,6 +552,8 @@ impl PlayRoundScreen {
 
         let rows = Layout::vertical([
             Constraint::Length(6), // Joker bar + counter
+            Constraint::Length(8), // Played cards zone (always present)
+            Constraint::Length(2), // Score info / last score
             Constraint::Length(1), // Hand type preview
             Constraint::Min(0),    // Hand cards
             Constraint::Length(1), // Card counter
@@ -565,8 +565,41 @@ impl PlayRoundScreen {
         // === Joker bar ===
         self.render_joker_bar(frame, game, rows[0]);
 
+        // === Played cards zone (always visible) ===
+        if is_scoring {
+            // During scoring: show the cards being scored with highlights
+            self.render_played_cards(frame, rows[1]);
+        } else if !self.last_played.is_empty() {
+            // After scoring: show the last played cards (no highlights)
+            let widget = PlayedCardsWidget::new(
+                &self.last_played,
+                self.last_score
+                    .as_ref()
+                    .map(|r| r.scoring_indices.as_slice())
+                    .unwrap_or(&[]),
+            );
+            // Cache rects (not strictly needed in normal mode, but keeps it consistent)
+            self.played_card_rects.clear();
+            for i in 0..self.last_played.len() {
+                if let Some(rect) = widget.card_rect(rows[1], i) {
+                    self.played_card_rects.push(rect);
+                } else {
+                    self.played_card_rects.push(Rect::default());
+                }
+            }
+            frame.render_widget(widget, rows[1]);
+        }
+        // else: empty zone (no cards played yet) — just blank space
+
+        // === Score info line ===
+        if is_scoring {
+            self.render_animated_score(frame, rows[2]);
+        } else {
+            self.render_last_score(frame, rows[2]);
+        }
+
         // === Hand type preview ===
-        if !game.selected_indices.is_empty() {
+        if !is_scoring && !game.selected_indices.is_empty() {
             let selected_cards = game.selected_cards();
             let hand_result = detect_hand(&selected_cards);
             let preview = Line::from(vec![Span::styled(
@@ -577,12 +610,17 @@ impl PlayRoundScreen {
             )]);
             frame.render_widget(
                 Paragraph::new(preview).alignment(Alignment::Center),
-                rows[1],
+                rows[3],
             );
         }
 
         // === Hand cards ===
-        self.render_hand(frame, game, rows[2]);
+        self.render_hand(frame, game, rows[4]);
+
+        // === Popup overlay (during scoring, rendered after hand so it's on top) ===
+        if is_scoring {
+            self.render_popup(frame);
+        }
 
         // === Card counter ===
         let counter_text = format!("{}/{}", game.hand.len(), game.hand_size);
@@ -592,90 +630,48 @@ impl PlayRoundScreen {
                 Style::default().fg(Theme::MUTED_TEXT),
             )))
             .alignment(Alignment::Center),
-            rows[3],
+            rows[5],
         );
 
         // === Action buttons ===
-        self.action_buttons_rect = rows[4];
-        let buttons = ActionButtonsWidget::new(
-            game.can_play(),
-            game.can_discard(),
-            game.hands_remaining,
-            game.discards_remaining,
-        );
-        frame.render_widget(buttons, rows[4]);
+        self.action_buttons_rect = rows[6];
+        let buttons = if is_scoring {
+            ActionButtonsWidget::new(false, false, game.hands_remaining, game.discards_remaining)
+        } else {
+            ActionButtonsWidget::new(
+                game.can_play(),
+                game.can_discard(),
+                game.hands_remaining,
+                game.discards_remaining,
+            )
+        };
+        frame.render_widget(buttons, rows[6]);
 
         // === Help line ===
-        let help = Paragraph::new(Line::from(vec![
-            Span::styled("[", Style::default().fg(Theme::DIM_TEXT)),
-            Span::styled("\u{2190}\u{2192}", Style::default().fg(Theme::GOLD)),
-            Span::styled("] Move  [", Style::default().fg(Theme::DIM_TEXT)),
-            Span::styled("Space", Style::default().fg(Theme::GOLD)),
-            Span::styled("] Select  [", Style::default().fg(Theme::DIM_TEXT)),
-            Span::styled("P", Style::default().fg(Theme::GOLD)),
-            Span::styled("] Play  [", Style::default().fg(Theme::DIM_TEXT)),
-            Span::styled("D", Style::default().fg(Theme::GOLD)),
-            Span::styled("] Discard  [", Style::default().fg(Theme::DIM_TEXT)),
-            Span::styled("S", Style::default().fg(Theme::GOLD)),
-            Span::styled("] Rank  [", Style::default().fg(Theme::DIM_TEXT)),
-            Span::styled("T", Style::default().fg(Theme::GOLD)),
-            Span::styled("] Suit", Style::default().fg(Theme::DIM_TEXT)),
-        ]))
-        .alignment(Alignment::Center);
-        frame.render_widget(help, rows[5]);
-    }
-
-    /// Render center area during scoring animation
-    fn render_center_scoring(&mut self, frame: &mut Frame, game: &RunState, center: Rect) {
-        // Scoring layout:
-        // ┌─────────────────────────────────────┐
-        // │ Joker bar (6)                        │
-        // │ Played cards zone (8)                │
-        // │ Animated score info (2)              │
-        // │ Hand cards (flex, dimmed)            │
-        // │ Action buttons (3, disabled)         │
-        // │ Help: skip animation (1)             │
-        // └─────────────────────────────────────┘
-
-        let rows = Layout::vertical([
-            Constraint::Length(6), // Joker bar
-            Constraint::Length(8), // Played cards zone
-            Constraint::Length(2), // Animated score
-            Constraint::Min(0),    // Hand (dimmed)
-            Constraint::Length(3), // Action buttons (disabled)
-            Constraint::Length(1), // Help
-        ])
-        .split(center);
-
-        // === Joker bar ===
-        self.render_joker_bar(frame, game, rows[0]);
-
-        // === Played cards zone ===
-        self.render_played_cards(frame, rows[1]);
-
-        // === Animated score info ===
-        self.render_animated_score(frame, rows[2]);
-
-        // === Hand (dimmed) ===
-        self.render_hand(frame, game, rows[3]);
-
-        // === Popup overlay ===
-        self.render_popup(frame);
-
-        // === Action buttons (disabled) ===
-        self.action_buttons_rect = rows[4];
-        let buttons =
-            ActionButtonsWidget::new(false, false, game.hands_remaining, game.discards_remaining);
-        frame.render_widget(buttons, rows[4]);
-
-        // === Help line ===
-        let help = Paragraph::new(Line::from(vec![
-            Span::styled("[", Style::default().fg(Theme::DIM_TEXT)),
-            Span::styled("Space/Enter", Style::default().fg(Theme::GOLD)),
-            Span::styled("] Skip Animation", Style::default().fg(Theme::DIM_TEXT)),
-        ]))
-        .alignment(Alignment::Center);
-        frame.render_widget(help, rows[5]);
+        let help = if is_scoring {
+            Paragraph::new(Line::from(vec![
+                Span::styled("[", Style::default().fg(Theme::DIM_TEXT)),
+                Span::styled("Space/Enter", Style::default().fg(Theme::GOLD)),
+                Span::styled("] Skip Animation", Style::default().fg(Theme::DIM_TEXT)),
+            ]))
+        } else {
+            Paragraph::new(Line::from(vec![
+                Span::styled("[", Style::default().fg(Theme::DIM_TEXT)),
+                Span::styled("\u{2190}\u{2192}", Style::default().fg(Theme::GOLD)),
+                Span::styled("] Move  [", Style::default().fg(Theme::DIM_TEXT)),
+                Span::styled("Space", Style::default().fg(Theme::GOLD)),
+                Span::styled("] Select  [", Style::default().fg(Theme::DIM_TEXT)),
+                Span::styled("P", Style::default().fg(Theme::GOLD)),
+                Span::styled("] Play  [", Style::default().fg(Theme::DIM_TEXT)),
+                Span::styled("D", Style::default().fg(Theme::GOLD)),
+                Span::styled("] Discard  [", Style::default().fg(Theme::DIM_TEXT)),
+                Span::styled("S", Style::default().fg(Theme::GOLD)),
+                Span::styled("] Rank  [", Style::default().fg(Theme::DIM_TEXT)),
+                Span::styled("T", Style::default().fg(Theme::GOLD)),
+                Span::styled("] Suit", Style::default().fg(Theme::DIM_TEXT)),
+            ]))
+        };
+        frame.render_widget(help.alignment(Alignment::Center), rows[7]);
     }
 
     // ─── Sub-render helpers ───────────────────────────────────────────
@@ -779,6 +775,43 @@ impl PlayRoundScreen {
             },
         ]);
         frame.render_widget(Paragraph::new(line).alignment(Alignment::Center), area);
+    }
+
+    fn render_last_score(&self, frame: &mut Frame, area: Rect) {
+        if let Some(result) = &self.last_score {
+            let score_line = Line::from(vec![
+                Span::styled(
+                    format!("  {} ", result.hand_type),
+                    Style::default()
+                        .fg(Theme::BRIGHT_TEXT)
+                        .add_modifier(Modifier::BOLD),
+                ),
+                Span::styled("\u{2502} ", Style::default().fg(Theme::CARD_BORDER)),
+                Span::styled(
+                    format!("{}", result.total_chips),
+                    Style::default()
+                        .fg(Theme::CHIPS_COLOR)
+                        .add_modifier(Modifier::BOLD),
+                ),
+                Span::styled(" \u{00d7} ", Style::default().fg(Theme::BRIGHT_TEXT)),
+                Span::styled(
+                    format!("{}", result.total_mult),
+                    Style::default()
+                        .fg(Theme::MULT_COLOR)
+                        .add_modifier(Modifier::BOLD),
+                ),
+                Span::styled(
+                    format!(" = {}", result.final_score),
+                    Style::default()
+                        .fg(Theme::SCORE_COLOR)
+                        .add_modifier(Modifier::BOLD),
+                ),
+            ]);
+            frame.render_widget(
+                Paragraph::new(score_line).alignment(Alignment::Center),
+                area,
+            );
+        }
     }
 
     fn render_popup(&self, frame: &mut Frame) {
