@@ -152,7 +152,16 @@ impl App {
         }
 
         match self.phase {
-            GamePhase::Playing => self.play_round.tick(&mut self.game),
+            GamePhase::Playing => {
+                self.play_round.tick(&mut self.game);
+
+                // Drive the scoring animation state machine
+                if self.play_round.is_scoring() {
+                    if let Some(action) = self.play_round.tick_scoring(&mut self.fx) {
+                        self.process_action(Some(action));
+                    }
+                }
+            }
             _ => {}
         }
     }
@@ -181,7 +190,8 @@ impl App {
             }
             Some(ScreenAction::PlayHand) => {
                 if let Some(game) = &mut self.game {
-                    if game.can_play() {
+                    if game.can_play() && !self.play_round.is_scoring() {
+                        // Remove cards from hand and compute score, but DON'T apply yet
                         let played = game.play_selected();
                         let score_result = balatrust_core::scoring::calculate_score_with_jokers(
                             &played,
@@ -190,14 +200,26 @@ impl App {
                             &game.hand, // remaining hand = held cards
                             game.discards_remaining,
                         );
-                        game.add_score(score_result.final_score);
+
+                        // Use a hand charge (decrements hands_remaining)
                         game.use_hand();
 
-                        // Store the last result for display
-                        self.play_round.last_score = Some(score_result);
-                        self.play_round.last_played = played;
+                        // Start the step-by-step scoring animation
+                        self.play_round.start_scoring(score_result, played);
+                    }
+                }
+            }
+            Some(ScreenAction::FinishScoring) => {
+                // Animation complete — clean up animation state and apply the actual score
+                self.play_round.finish_scoring();
+                if let Some(game) = &mut self.game {
+                    if let Some(result) = self.play_round.scoring_result.take() {
+                        game.add_score(result.final_score);
 
-                        // Trigger score highlight animation
+                        // Store for the "last score" display
+                        self.play_round.last_score = Some(result);
+
+                        // Trigger score highlight effect
                         self.fx
                             .add_unique_effect("score_highlight", effects::score_highlight());
 
@@ -210,7 +232,6 @@ impl App {
                         // Check win/lose
                         if game.blind_beaten() {
                             self.play_round.blind_just_beaten = true;
-                            // Celebration effect!
                             self.fx
                                 .add_unique_effect("celebration", effects::celebration_shimmer());
                         } else if game.round_lost() {
@@ -292,6 +313,8 @@ pub enum ScreenAction {
     StartBlind,
     SkipBlind,
     PlayHand,
+    /// Scoring animation is complete — apply the score and resolve the round
+    FinishScoring,
     Discard,
     BeatBlind,
     LeaveShop,

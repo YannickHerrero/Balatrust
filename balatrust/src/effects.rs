@@ -5,7 +5,8 @@ use tachyonfx::fx;
 use tachyonfx::{Effect, EffectManager, Interpolation, IntoEffect, Motion};
 
 /// Our keyed effect manager using tachyonfx's built-in EffectManager
-pub type FxManager = EffectManager<&'static str>;
+/// Using String keys so we can generate dynamic keys like "card_score_0"
+pub type FxManager = EffectManager<String>;
 
 // ─── Effect Factories ────────────────────────────────────────────────
 
@@ -77,4 +78,20 @@ pub fn score_highlight() -> Effect {
     let shift = fx::fade_to_fg(gold, (200, Interpolation::QuadOut));
     let shift_back = fx::fade_from_fg(gold, (600, Interpolation::QuadIn));
     fx::sequence(&[shift, shift_back])
+}
+
+/// Brief bright glow on a card being scored
+pub fn card_score_glow() -> Effect {
+    let white = Color::Rgb(255, 255, 255);
+    let bright = fx::fade_to_fg(white, (100, Interpolation::QuadOut));
+    let dim = fx::fade_from_fg(white, (200, Interpolation::QuadIn));
+    fx::sequence(&[bright, dim])
+}
+
+/// Pulse effect on a joker when it activates during scoring
+pub fn joker_activate_pulse() -> Effect {
+    let gold = Color::Rgb(255, 214, 10);
+    let bright = fx::fade_to_fg(gold, (120, Interpolation::QuadOut));
+    let dim = fx::fade_from_fg(gold, (250, Interpolation::QuadIn));
+    fx::sequence(&[bright, dim])
 }

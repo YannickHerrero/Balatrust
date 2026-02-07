@@ -14,6 +14,8 @@ pub struct JokerBarWidget<'a> {
     pub jokers: &'a [Joker],
     pub max_jokers: u8,
     pub selected: Option<usize>,
+    /// Index of the joker currently "activated" (pulsing during scoring animation)
+    pub activated: Option<usize>,
 }
 
 impl<'a> JokerBarWidget<'a> {
@@ -22,12 +24,33 @@ impl<'a> JokerBarWidget<'a> {
             jokers,
             max_jokers,
             selected: None,
+            activated: None,
         }
     }
 
     pub fn selected(mut self, selected: Option<usize>) -> Self {
         self.selected = selected;
         self
+    }
+
+    pub fn activated(mut self, activated: Option<usize>) -> Self {
+        self.activated = activated;
+        self
+    }
+
+    /// Get the Rect for a specific joker given the bar area
+    pub fn joker_rect(&self, area: Rect, joker_index: usize) -> Option<Rect> {
+        if joker_index >= self.max_jokers as usize {
+            return None;
+        }
+
+        let spacing = 1u16;
+        let total_slots = self.max_jokers as u16;
+        let total_width = total_slots * JOKER_WIDTH + (total_slots.saturating_sub(1)) * spacing;
+        let start_x = area.x + area.width.saturating_sub(total_width) / 2;
+
+        let x = start_x + (joker_index as u16) * (JOKER_WIDTH + spacing);
+        Some(Rect::new(x, area.y, JOKER_WIDTH, JOKER_HEIGHT))
     }
 }
 
@@ -52,7 +75,8 @@ impl<'a> Widget for JokerBarWidget<'a> {
 
             if let Some(joker) = self.jokers.get(i) {
                 let is_selected = self.selected == Some(i);
-                render_joker_card(joker, card_area, buf, is_selected);
+                let is_activated = self.activated == Some(i);
+                render_joker_card(joker, card_area, buf, is_selected, is_activated);
             } else {
                 render_empty_slot(card_area, buf);
             }
@@ -60,7 +84,7 @@ impl<'a> Widget for JokerBarWidget<'a> {
     }
 }
 
-fn render_joker_card(joker: &Joker, area: Rect, buf: &mut Buffer, selected: bool) {
+fn render_joker_card(joker: &Joker, area: Rect, buf: &mut Buffer, selected: bool, activated: bool) {
     let rarity_color = match joker.joker_type.rarity() {
         JokerRarity::Common => Theme::COMMON,
         JokerRarity::Uncommon => Theme::UNCOMMON,
@@ -68,7 +92,9 @@ fn render_joker_card(joker: &Joker, area: Rect, buf: &mut Buffer, selected: bool
         JokerRarity::Legendary => Theme::LEGENDARY,
     };
 
-    let border_color = if selected {
+    let border_color = if activated {
+        Theme::BRIGHT_TEXT // Bright white glow when activated during scoring
+    } else if selected {
         Theme::CARD_SELECTED
     } else {
         rarity_color

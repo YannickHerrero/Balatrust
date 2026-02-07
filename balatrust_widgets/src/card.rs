@@ -17,6 +17,8 @@ pub struct CardWidget {
     pub highlighted: bool,
     pub face_down: bool,
     pub dimmed: bool,
+    /// True when this card is actively being scored (bright glow border)
+    pub scoring: bool,
 }
 
 impl CardWidget {
@@ -27,6 +29,7 @@ impl CardWidget {
             highlighted: false,
             face_down: false,
             dimmed: false,
+            scoring: false,
         }
     }
 
@@ -50,6 +53,11 @@ impl CardWidget {
         self
     }
 
+    pub fn scoring(mut self, scoring: bool) -> Self {
+        self.scoring = scoring;
+        self
+    }
+
     fn suit_color(&self) -> ratatui::style::Color {
         if self.dimmed || self.card.debuffed {
             Theme::DIM_TEXT
@@ -61,7 +69,9 @@ impl CardWidget {
     }
 
     fn border_color(&self) -> ratatui::style::Color {
-        if self.selected {
+        if self.scoring {
+            Theme::BRIGHT_TEXT // Bright white glow when scoring
+        } else if self.selected {
             Theme::CARD_SELECTED
         } else if self.highlighted {
             Theme::GOLD

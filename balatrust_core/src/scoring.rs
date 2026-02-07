@@ -4,7 +4,8 @@ use crate::card::PlayingCard;
 use crate::hand::{detect_hand, PokerHand};
 use crate::joker::{evaluate_joker, Joker, JokerContext, JokerEffect, JokerType};
 
-/// A single step in the scoring process, used for animation
+/// A single step in the scoring process, used for animation.
+/// Each step represents one visual "beat" in the scoring sequence.
 #[derive(Debug, Clone)]
 pub enum ScoreStep {
     /// The base hand type contributes chips and mult
@@ -19,12 +20,55 @@ pub enum ScoreStep {
     CardMult { card_index: usize, mult: u64 },
     /// A played card applies multiplicative mult (glass/polychrome)
     CardXMult { card_index: usize, x_mult: f64 },
-    /// A joker adds flat chips
+    /// A joker adds flat chips (global effect, not per-card)
     JokerChips { joker_index: usize, chips: u64 },
-    /// A joker adds flat mult
+    /// A joker adds flat mult (global effect, not per-card)
     JokerMult { joker_index: usize, mult: u64 },
     /// A joker applies multiplicative mult
     JokerXMult { joker_index: usize, x_mult: f64 },
+    /// A joker adds chips triggered by a specific card (per-card effect)
+    JokerCardChips {
+        joker_index: usize,
+        card_index: usize,
+        chips: u64,
+    },
+    /// A joker adds mult triggered by a specific card (per-card effect)
+    JokerCardMult {
+        joker_index: usize,
+        card_index: usize,
+        mult: u64,
+    },
+}
+
+impl ScoreStep {
+    /// Returns the label text for floating popup display (e.g. "+10", "+4 Mult", "X2")
+    pub fn popup_text(&self) -> String {
+        match self {
+            ScoreStep::BaseHand { chips, mult, .. } => format!("+{} / +{}", chips, mult),
+            ScoreStep::CardChips { chips, .. } => format!("+{}", chips),
+            ScoreStep::CardMult { mult, .. } => format!("+{}", mult),
+            ScoreStep::CardXMult { x_mult, .. } => format!("X{}", x_mult),
+            ScoreStep::JokerChips { chips, .. } => format!("+{}", chips),
+            ScoreStep::JokerMult { mult, .. } => format!("+{}", mult),
+            ScoreStep::JokerXMult { x_mult, .. } => format!("X{}", x_mult),
+            ScoreStep::JokerCardChips { chips, .. } => format!("+{}", chips),
+            ScoreStep::JokerCardMult { mult, .. } => format!("+{}", mult),
+        }
+    }
+
+    /// Returns the color category for the popup: "chips", "mult", or "xmult"
+    pub fn popup_kind(&self) -> &'static str {
+        match self {
+            ScoreStep::BaseHand { .. } => "chips",
+            ScoreStep::CardChips { .. }
+            | ScoreStep::JokerChips { .. }
+            | ScoreStep::JokerCardChips { .. } => "chips",
+            ScoreStep::CardMult { .. }
+            | ScoreStep::JokerMult { .. }
+            | ScoreStep::JokerCardMult { .. } => "mult",
+            ScoreStep::CardXMult { .. } | ScoreStep::JokerXMult { .. } => "xmult",
+        }
+    }
 }
 
 /// Result of scoring a hand
@@ -307,50 +351,54 @@ fn apply_joker_effect(
             card_indices,
             chips_each,
         } => {
-            let total = chips_each * card_indices.len() as u64;
-            steps.push(ScoreStep::JokerChips {
-                joker_index,
-                chips: total,
-            });
-            *total_chips += total;
+            // Emit individual steps per card for animation (each card lights up)
+            for &ci in &card_indices {
+                steps.push(ScoreStep::JokerCardChips {
+                    joker_index,
+                    card_index: ci,
+                    chips: chips_each,
+                });
+                *total_chips += chips_each;
+            }
         }
         JokerEffect::AddMultPerCard {
             card_indices,
             mult_each,
         } => {
-            let total = mult_each * card_indices.len() as u64;
-            steps.push(ScoreStep::JokerMult {
-                joker_index,
-                mult: total,
-            });
-            *total_mult_f += total as f64;
+            // Emit individual steps per card for animation
+            for &ci in &card_indices {
+                steps.push(ScoreStep::JokerCardMult {
+                    joker_index,
+                    card_index: ci,
+                    mult: mult_each,
+                });
+                *total_mult_f += mult_each as f64;
+            }
         }
         JokerEffect::AddChipsAndMultPerCard {
             card_indices,
             chips_each,
             mult_each,
         } => {
-            let n = card_indices.len() as u64;
-            let total_c = chips_each * n;
-            let total_m = mult_each * n;
-            steps.push(ScoreStep::JokerChips {
-                joker_index,
-                chips: total_c,
-            });
-            *total_chips += total_c;
-            steps.push(ScoreStep::JokerMult {
-                joker_index,
-                mult: total_m,
-            });
-            *total_mult_f += total_m as f64;
+            // Emit individual chip+mult steps per card for animation
+            for &ci in &card_indices {
+                steps.push(ScoreStep::JokerCardChips {
+                    joker_index,
+                    card_index: ci,
+                    chips: chips_each,
+                });
+                *total_chips += chips_each;
+                steps.push(ScoreStep::JokerCardMult {
+                    joker_index,
+                    card_index: ci,
+                    mult: mult_each,
+                });
+                *total_mult_f += mult_each as f64;
+            }
         }
         JokerEffect::Retrigger { card_indices: _ } => {
             // Retrigger: re-score the card chips/mult (simplified)
-            // Full retrigger would re-evaluate, but for MVP we add a flat bonus
-            steps.push(ScoreStep::JokerChips {
-                joker_index,
-                chips: 0,
-            });
+            // Full retrigger would re-evaluate, but for MVP we skip
         }
         JokerEffect::None => {}
     }

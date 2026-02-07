@@ -4,8 +4,10 @@ pub mod card;
 pub mod hand;
 pub mod hud;
 pub mod joker_bar;
+pub mod played_cards;
 pub mod popup;
 pub mod score_display;
+pub mod score_popup;
 pub mod theme;
 
 pub use theme::Theme;
