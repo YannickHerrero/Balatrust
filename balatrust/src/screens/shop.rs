@@ -50,8 +50,6 @@ impl ShopScreen {
 impl Screen for ShopScreen {
     fn render(&mut self, frame: &mut Frame, game: &Option<RunState>) {
         let area = frame.area();
-        let bg = Block::default().style(Style::default().bg(Theme::BG));
-        frame.render_widget(bg, area);
 
         let game = match game {
             Some(g) => g,

@@ -1,12 +1,9 @@
 use crossterm::event::{KeyCode, KeyEvent};
 use ratatui::layout::{Constraint, Layout};
-use ratatui::style::Style;
-use ratatui::widgets::Block;
 use ratatui::Frame;
 
 use balatrust_core::RunState;
 use balatrust_widgets::blind_select::BlindSelectWidget;
-use balatrust_widgets::theme::Theme;
 
 use crate::app::ScreenAction;
 use crate::screens::Screen;
@@ -24,8 +21,6 @@ impl BlindSelectScreen {
 impl Screen for BlindSelectScreen {
     fn render(&mut self, frame: &mut Frame, game: &Option<RunState>) {
         let area = frame.area();
-        let bg = Block::default().style(Style::default().bg(Theme::BG));
-        frame.render_widget(bg, area);
 
         if let Some(game) = game {
             let chunks = Layout::vertical([

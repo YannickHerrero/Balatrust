@@ -1,4 +1,5 @@
 mod app;
+mod effects;
 mod screens;
 
 use std::io;

@@ -1,8 +1,10 @@
 use crossterm::event::{KeyCode, KeyEvent, MouseEvent};
 use ratatui::Frame;
+use tachyonfx::Duration;
 
 use balatrust_core::RunState;
 
+use crate::effects::{self, FxManager};
 use crate::screens::blind_select::BlindSelectScreen;
 use crate::screens::game_over::GameOverScreen;
 use crate::screens::main_menu::MainMenuScreen;
@@ -24,6 +26,9 @@ pub enum GamePhase {
 pub struct App {
     pub phase: GamePhase,
     pub game: Option<RunState>,
+    pub tick: u64,
+    pub fx: FxManager,
+    prev_phase: Option<GamePhase>,
 
     // Screens
     pub main_menu: MainMenuScreen,
@@ -35,9 +40,16 @@ pub struct App {
 
 impl App {
     pub fn new() -> Self {
+        let mut fx = FxManager::default();
+        // Title shimmer runs forever on main menu
+        fx.add_unique_effect("title_shimmer", effects::title_shimmer());
+
         Self {
             phase: GamePhase::MainMenu,
             game: None,
+            tick: 0,
+            fx,
+            prev_phase: None,
             main_menu: MainMenuScreen::new(),
             blind_select: BlindSelectScreen::new(),
             play_round: PlayRoundScreen::new(),
@@ -47,6 +59,16 @@ impl App {
     }
 
     pub fn render(&mut self, frame: &mut Frame) {
+        let area = frame.area();
+
+        // Render animated background for all screens
+        let bg = balatrust_widgets::background::BackgroundWidget::new(self.tick);
+        frame.render_widget(bg, area);
+
+        // Render decorative frame border
+        let frame_border = balatrust_widgets::background::FrameWidget::new(self.tick);
+        frame.render_widget(frame_border, area);
+
         match self.phase {
             GamePhase::MainMenu => self.main_menu.render(frame, &self.game),
             GamePhase::BlindSelect => self.blind_select.render(frame, &self.game),
@@ -57,6 +79,11 @@ impl App {
                 self.game_over.render(frame, &self.game);
             }
         }
+
+        // Apply all tachyonfx effects on top of rendered content
+        let tick_duration = Duration::from_millis(33); // ~30fps
+        let buf = frame.buffer_mut();
+        self.fx.process_effects(tick_duration, buf, area);
     }
 
     /// Handle key event. Returns true if should quit.
@@ -92,6 +119,38 @@ impl App {
     }
 
     pub fn tick(&mut self) {
+        self.tick += 1;
+
+        // Detect phase changes and trigger transition effects
+        if self.prev_phase != Some(self.phase) {
+            self.fx
+                .add_unique_effect("screen_transition", effects::screen_transition());
+
+            // Add boss glitch when entering boss blind
+            if let GamePhase::Playing = self.phase {
+                if let Some(game) = &self.game {
+                    if matches!(game.blind_type, balatrust_core::blind::BlindType::Boss(_)) {
+                        self.fx.add_unique_effect(
+                            "boss_glitch",
+                            tachyonfx::fx::never_complete(effects::boss_glitch()),
+                        );
+                    } else {
+                        self.fx.cancel_unique_effect("boss_glitch");
+                    }
+                }
+            } else {
+                self.fx.cancel_unique_effect("boss_glitch");
+            }
+
+            // Re-add title shimmer when returning to main menu
+            if self.phase == GamePhase::MainMenu {
+                self.fx
+                    .add_unique_effect("title_shimmer", effects::title_shimmer());
+            }
+
+            self.prev_phase = Some(self.phase);
+        }
+
         match self.phase {
             GamePhase::Playing => self.play_round.tick(&mut self.game),
             _ => {}
@@ -138,12 +197,22 @@ impl App {
                         self.play_round.last_score = Some(score_result);
                         self.play_round.last_played = played;
 
+                        // Trigger score highlight animation
+                        self.fx
+                            .add_unique_effect("score_highlight", effects::score_highlight());
+
                         // Draw replacement cards
                         game.draw_to_hand_size();
+
+                        // The Hook: discard 2 random cards
+                        game.apply_hook_effect();
 
                         // Check win/lose
                         if game.blind_beaten() {
                             self.play_round.blind_just_beaten = true;
+                            // Celebration effect!
+                            self.fx
+                                .add_unique_effect("celebration", effects::celebration_shimmer());
                         } else if game.round_lost() {
                             self.phase = GamePhase::GameOver { won: false };
                         }

@@ -2,7 +2,7 @@ use crossterm::event::{KeyCode, KeyEvent};
 use ratatui::layout::{Alignment, Constraint, Layout};
 use ratatui::style::{Modifier, Style};
 use ratatui::text::{Line, Span};
-use ratatui::widgets::{Block, Paragraph};
+use ratatui::widgets::Paragraph;
 use ratatui::Frame;
 
 use balatrust_core::RunState;
@@ -24,10 +24,6 @@ impl MainMenuScreen {
 impl Screen for MainMenuScreen {
     fn render(&mut self, frame: &mut Frame, _game: &Option<RunState>) {
         let area = frame.area();
-
-        // Fill background
-        let bg_block = Block::default().style(Style::default().bg(Theme::BG));
-        frame.render_widget(bg_block, area);
 
         let chunks = Layout::vertical([
             Constraint::Percentage(30),

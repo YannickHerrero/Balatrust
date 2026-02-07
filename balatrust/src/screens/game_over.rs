@@ -2,7 +2,7 @@ use crossterm::event::{KeyCode, KeyEvent};
 use ratatui::layout::{Alignment, Constraint, Layout};
 use ratatui::style::{Modifier, Style};
 use ratatui::text::{Line, Span};
-use ratatui::widgets::{Block, Paragraph};
+use ratatui::widgets::Paragraph;
 use ratatui::Frame;
 
 use balatrust_core::RunState;
@@ -24,8 +24,6 @@ impl GameOverScreen {
 impl Screen for GameOverScreen {
     fn render(&mut self, frame: &mut Frame, game: &Option<RunState>) {
         let area = frame.area();
-        let bg = Block::default().style(Style::default().bg(Theme::BG));
-        frame.render_widget(bg, area);
 
         let chunks = Layout::vertical([
             Constraint::Percentage(30),

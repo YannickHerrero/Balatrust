@@ -343,9 +343,37 @@ impl RunState {
 
     /// Can the player play a hand right now?
     pub fn can_play(&self) -> bool {
-        self.hands_remaining > 0
-            && !self.selected_indices.is_empty()
-            && self.selected_indices.len() <= 5
+        if self.hands_remaining == 0 || self.selected_indices.is_empty() {
+            return false;
+        }
+        if self.selected_indices.len() > 5 {
+            return false;
+        }
+        // The Psychic: must play exactly 5 cards
+        if let BlindType::Boss(BossBlind::ThePsychic) = &self.blind_type {
+            if self.selected_indices.len() != 5 {
+                return false;
+            }
+        }
+        true
+    }
+
+    /// Apply The Hook effect: discard 2 random cards from hand
+    pub fn apply_hook_effect(&mut self) {
+        if let BlindType::Boss(BossBlind::TheHook) = &self.blind_type {
+            use rand::seq::SliceRandom;
+            if self.hand.len() > 2 {
+                let mut indices: Vec<usize> = (0..self.hand.len()).collect();
+                indices.shuffle(&mut self.rng);
+                let to_remove: Vec<usize> = indices.into_iter().take(2).collect();
+                let mut sorted = to_remove;
+                sorted.sort_unstable_by(|a, b| b.cmp(a));
+                for idx in sorted {
+                    let card = self.hand.remove(idx);
+                    self.deck.discard_cards(&[card]);
+                }
+            }
+        }
     }
 
     /// Can the player discard right now?

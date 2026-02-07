@@ -3,7 +3,7 @@ members = ["balatrust", "balatrust_core", "balatrust_widgets"]
 resolver = "2"
 
 [workspace.dependencies]
-ratatui = "0.29"
-crossterm = "0.28"
-tachyonfx = "0.7"
+ratatui = "0.30"
+crossterm = "0.29"
+tachyonfx = "0.23"
 rand = "0.8"
