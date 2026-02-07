@@ -315,6 +315,20 @@ impl App {
                     self.play_round.cursor = 0;
                 }
             }
+            Some(ScreenAction::SelectAll) => {
+                if let Some(game) = &mut self.game {
+                    game.selected_indices.clear();
+                    let max = game.hand.len().min(5);
+                    for i in 0..max {
+                        game.selected_indices.push(i);
+                    }
+                }
+            }
+            Some(ScreenAction::ClearSelection) => {
+                if let Some(game) = &mut self.game {
+                    game.selected_indices.clear();
+                }
+            }
             None => {}
         }
 
@@ -343,4 +357,6 @@ pub enum ScreenAction {
     UseConsumable(usize),
     SortByRank,
     SortBySuit,
+    SelectAll,
+    ClearSelection,
 }

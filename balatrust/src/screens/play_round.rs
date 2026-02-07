@@ -617,7 +617,9 @@ impl PlayRoundScreen {
             Span::styled("D", Style::default().fg(Theme::GOLD)),
             Span::styled("] Discard  [", Style::default().fg(Theme::DIM_TEXT)),
             Span::styled("S", Style::default().fg(Theme::GOLD)),
-            Span::styled("] Sort", Style::default().fg(Theme::DIM_TEXT)),
+            Span::styled("] Rank  [", Style::default().fg(Theme::DIM_TEXT)),
+            Span::styled("T", Style::default().fg(Theme::GOLD)),
+            Span::styled("] Suit", Style::default().fg(Theme::DIM_TEXT)),
         ]))
         .alignment(Alignment::Center);
         frame.render_widget(help, rows[5]);
@@ -997,12 +999,10 @@ impl PlayRoundScreen {
                 return Some(ScreenAction::SortBySuit);
             }
             KeyCode::Char('a') | KeyCode::Char('A') => {
-                // Select all (up to 5)
-                return None; // Handled differently
+                return Some(ScreenAction::SelectAll);
             }
             KeyCode::Char('c') | KeyCode::Char('C') => {
-                // Clear selection
-                return None;
+                return Some(ScreenAction::ClearSelection);
             }
             _ => {}
         }
