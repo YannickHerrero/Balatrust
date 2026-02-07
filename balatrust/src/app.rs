@@ -1,4 +1,4 @@
-use crossterm::event::{KeyCode, KeyEvent, MouseEvent};
+use crossterm::event::{KeyCode, KeyEvent, KeyModifiers, MouseEvent};
 use ratatui::Frame;
 use tachyonfx::Duration;
 
@@ -88,7 +88,12 @@ impl App {
 
     /// Handle key event. Returns true if should quit.
     pub fn handle_key(&mut self, key: KeyEvent) -> bool {
-        // Global quit
+        // Ctrl+C quits from anywhere
+        if key.code == KeyCode::Char('c') && key.modifiers.contains(KeyModifiers::CONTROL) {
+            return true;
+        }
+
+        // 'q' quits from main menu
         if key.code == KeyCode::Char('q') && self.phase == GamePhase::MainMenu {
             return true;
         }

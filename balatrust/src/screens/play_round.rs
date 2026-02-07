@@ -74,6 +74,8 @@ pub struct PlayRoundScreen {
     joker_rects: Vec<Rect>,
     /// The hand type name for display during animation
     anim_hand_name: String,
+    /// Index of joker being inspected (click-to-view detail popup)
+    inspected_joker: Option<usize>,
 }
 
 impl PlayRoundScreen {
@@ -95,6 +97,7 @@ impl PlayRoundScreen {
             played_card_rects: Vec::new(),
             joker_rects: Vec::new(),
             anim_hand_name: String::new(),
+            inspected_joker: None,
         }
     }
 
@@ -115,6 +118,7 @@ impl PlayRoundScreen {
         self.played_card_rects.clear();
         self.joker_rects.clear();
         self.anim_hand_name.clear();
+        self.inspected_joker = None;
     }
 
     /// Returns true if we're currently in a scoring animation
@@ -546,6 +550,11 @@ impl PlayRoundScreen {
             frame.render_widget(help, main_chunks[5]);
         }
 
+        // Joker inspect popup (rendered on top of everything except blind beaten)
+        if let Some(ji) = self.inspected_joker {
+            self.render_joker_inspect(frame, game, ji, area);
+        }
+
         // Blind beaten popup (always on top)
         if self.blind_just_beaten {
             self.render_beaten_popup(frame, game, area);
@@ -781,6 +790,118 @@ impl PlayRoundScreen {
         frame.render_widget(score_widget, area);
     }
 
+    fn render_joker_inspect(
+        &self,
+        frame: &mut Frame,
+        game: &RunState,
+        joker_index: usize,
+        _screen_area: Rect,
+    ) {
+        let joker = match game.jokers.get(joker_index) {
+            Some(j) => j,
+            None => {
+                return;
+            }
+        };
+
+        let joker_rect = match self.joker_rects.get(joker_index).copied() {
+            Some(r) if r.width > 0 => r,
+            _ => return,
+        };
+
+        let jt = &joker.joker_type;
+        let name = jt.name();
+        let desc = jt.description();
+        let rarity = jt.rarity();
+        let sell_value = joker.total_sell_value();
+
+        let rarity_str = match rarity {
+            balatrust_core::joker::JokerRarity::Common => "Common",
+            balatrust_core::joker::JokerRarity::Uncommon => "Uncommon",
+            balatrust_core::joker::JokerRarity::Rare => "Rare",
+            balatrust_core::joker::JokerRarity::Legendary => "Legendary",
+        };
+        let rarity_color = match rarity {
+            balatrust_core::joker::JokerRarity::Common => Theme::COMMON,
+            balatrust_core::joker::JokerRarity::Uncommon => Theme::UNCOMMON,
+            balatrust_core::joker::JokerRarity::Rare => Theme::RARE,
+            balatrust_core::joker::JokerRarity::Legendary => Theme::LEGENDARY,
+        };
+
+        // Build lines for the popup
+        let lines: Vec<Line> = vec![
+            Line::from(Span::styled(
+                name,
+                Style::default()
+                    .fg(Theme::BRIGHT_TEXT)
+                    .add_modifier(Modifier::BOLD),
+            )),
+            Line::from(""),
+            Line::from(Span::styled(desc, Style::default().fg(Theme::MUTED_TEXT))),
+            Line::from(""),
+            Line::from(vec![
+                Span::styled("Rarity: ", Style::default().fg(Theme::DIM_TEXT)),
+                Span::styled(
+                    rarity_str,
+                    Style::default()
+                        .fg(rarity_color)
+                        .add_modifier(Modifier::BOLD),
+                ),
+            ]),
+            Line::from(vec![
+                Span::styled("Sell: ", Style::default().fg(Theme::DIM_TEXT)),
+                Span::styled(
+                    format!("${}", sell_value),
+                    Style::default()
+                        .fg(Theme::MONEY_COLOR)
+                        .add_modifier(Modifier::BOLD),
+                ),
+            ]),
+        ];
+
+        // Size the popup to fit content
+        let content_width = lines.iter().map(|l| l.width() as u16).max().unwrap_or(10) + 4; // +4 for border + padding
+        let popup_width = content_width.max(20).min(40);
+        let popup_height = (lines.len() as u16) + 3; // +3 for border top/bottom + padding
+
+        // Position below the joker card, centered on it
+        let popup_x = joker_rect
+            .x
+            .saturating_add(joker_rect.width / 2)
+            .saturating_sub(popup_width / 2)
+            .max(frame.area().x)
+            .min(frame.area().right().saturating_sub(popup_width));
+        let popup_y = joker_rect
+            .bottom()
+            .min(frame.area().bottom().saturating_sub(popup_height));
+
+        let popup_area = Rect::new(popup_x, popup_y, popup_width, popup_height);
+
+        // Clear background and draw border
+        frame.render_widget(ratatui::widgets::Clear, popup_area);
+
+        let block = Block::default()
+            .borders(Borders::ALL)
+            .border_type(ratatui::widgets::BorderType::Rounded)
+            .border_style(Style::default().fg(rarity_color))
+            .padding(ratatui::widgets::Padding::horizontal(1));
+
+        let inner = block.inner(popup_area);
+        frame.render_widget(block, popup_area);
+
+        // Render lines
+        for (i, line) in lines.iter().enumerate() {
+            let y = inner.y + i as u16;
+            if y >= inner.bottom() {
+                break;
+            }
+            frame.render_widget(
+                Paragraph::new(line.clone()),
+                Rect::new(inner.x, y, inner.width, 1),
+            );
+        }
+    }
+
     fn render_beaten_popup(&self, frame: &mut Frame, game: &RunState, area: Rect) {
         let popup = balatrust_widgets::popup::PopupWidget::new("Blind Defeated!")
             .line(
@@ -818,6 +939,14 @@ impl PlayRoundScreen {
                 self.blind_just_beaten = false;
                 self.last_score = None;
                 return Some(ScreenAction::BeatBlind);
+            }
+            return None;
+        }
+
+        // Dismiss joker inspect popup
+        if self.inspected_joker.is_some() {
+            if matches!(key.code, KeyCode::Esc | KeyCode::Enter | KeyCode::Char(' ')) {
+                self.inspected_joker = None;
             }
             return None;
         }
@@ -871,7 +1000,7 @@ impl PlayRoundScreen {
         mouse: MouseEvent,
         _game: &Option<RunState>,
     ) -> Option<ScreenAction> {
-        if self.blind_just_beaten || self.is_scoring() {
+        if self.blind_just_beaten {
             return None;
         }
 
@@ -880,7 +1009,36 @@ impl PlayRoundScreen {
                 let col = mouse.column;
                 let row = mouse.row;
 
-                // Check if click is on a card
+                // Check if click is on a joker (works during scoring too)
+                for (i, rect) in self.joker_rects.iter().enumerate() {
+                    if rect.width > 0
+                        && col >= rect.x
+                        && col < rect.x + rect.width
+                        && row >= rect.y
+                        && row < rect.y + rect.height
+                    {
+                        // Toggle: click same joker again to dismiss
+                        if self.inspected_joker == Some(i) {
+                            self.inspected_joker = None;
+                        } else {
+                            self.inspected_joker = Some(i);
+                        }
+                        return None;
+                    }
+                }
+
+                // Click elsewhere dismisses the joker popup
+                if self.inspected_joker.is_some() {
+                    self.inspected_joker = None;
+                    return None;
+                }
+
+                // Don't process other clicks during scoring
+                if self.is_scoring() {
+                    return None;
+                }
+
+                // Check if click is on a hand card
                 for (i, rect) in self.hand_card_rects.iter().enumerate() {
                     if col >= rect.x
                         && col < rect.x + rect.width
