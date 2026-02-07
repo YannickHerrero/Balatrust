@@ -1,0 +1,12 @@
+[package]
+name = "balatrust"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+ratatui = { workspace = true }
+crossterm = { workspace = true }
+tachyonfx = { workspace = true }
+color-eyre = "0.6"
+balatrust_core = { path = "../balatrust_core" }
+balatrust_widgets = { path = "../balatrust_widgets" }
