@@ -381,6 +381,26 @@ impl RunState {
         self.discards_remaining > 0 && !self.selected_indices.is_empty()
     }
 
+    /// Sort hand by rank (ascending: 2, 3, ..., K, A), then by suit within same rank
+    pub fn sort_hand_by_rank(&mut self) {
+        self.selected_indices.clear();
+        self.hand.sort_by(|a, b| {
+            a.rank
+                .cmp(&b.rank)
+                .then_with(|| suit_order(a.suit).cmp(&suit_order(b.suit)))
+        });
+    }
+
+    /// Sort hand by suit (Spades, Hearts, Diamonds, Clubs), then by rank within same suit
+    pub fn sort_hand_by_suit(&mut self) {
+        self.selected_indices.clear();
+        self.hand.sort_by(|a, b| {
+            suit_order(a.suit)
+                .cmp(&suit_order(b.suit))
+                .then_with(|| a.rank.cmp(&b.rank))
+        });
+    }
+
     /// Buy a shop item
     pub fn buy_shop_item(&mut self, index: usize) -> bool {
         let price = if let Some(shop) = &self.shop {
@@ -474,6 +494,15 @@ impl RunState {
             true
         } else {
             false
+        }
+    }
+
+    /// Get the current round number within this ante (1-based: small=1, big=2, boss=3)
+    pub fn round_number(&self) -> u8 {
+        match self.blind_type {
+            BlindType::Small => 1,
+            BlindType::Big => 2,
+            BlindType::Boss(_) => 3,
         }
     }
 
@@ -575,5 +604,15 @@ impl RunState {
         } else {
             false
         }
+    }
+}
+
+/// Consistent suit ordering for sort: Spades(0), Hearts(1), Diamonds(2), Clubs(3)
+fn suit_order(suit: crate::card::Suit) -> u8 {
+    match suit {
+        crate::card::Suit::Spades => 0,
+        crate::card::Suit::Hearts => 1,
+        crate::card::Suit::Diamonds => 2,
+        crate::card::Suit::Clubs => 3,
     }
 }

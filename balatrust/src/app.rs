@@ -303,6 +303,18 @@ impl App {
                     }
                 }
             }
+            Some(ScreenAction::SortByRank) => {
+                if let Some(game) = &mut self.game {
+                    game.sort_hand_by_rank();
+                    self.play_round.cursor = 0;
+                }
+            }
+            Some(ScreenAction::SortBySuit) => {
+                if let Some(game) = &mut self.game {
+                    game.sort_hand_by_suit();
+                    self.play_round.cursor = 0;
+                }
+            }
             None => {}
         }
 
@@ -329,4 +341,6 @@ pub enum ScreenAction {
     SellJoker(usize),
     RerollShop,
     UseConsumable(usize),
+    SortByRank,
+    SortBySuit,
 }
