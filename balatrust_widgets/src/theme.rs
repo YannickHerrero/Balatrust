@@ -14,6 +14,8 @@ impl Theme {
     pub const CARD_BORDER: Color = Color::Rgb(108, 117, 125);
     pub const CARD_SELECTED: Color = Color::Rgb(255, 214, 10);
     pub const CARD_BACK: Color = Color::Rgb(60, 60, 120);
+    /// Subtle dim color used for decorative interior elements on card faces
+    pub const CARD_FACE_DIM: Color = Color::Rgb(80, 80, 100);
 
     // Suit colors
     pub const RED_SUIT: Color = Color::Rgb(230, 57, 70);

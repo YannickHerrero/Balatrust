@@ -561,14 +561,14 @@ impl PlayRoundScreen {
         // └─────────────────────────────────────┘
 
         let rows = Layout::vertical([
-            Constraint::Length(6), // Joker bar + counter
-            Constraint::Length(8), // Played cards zone (always present)
-            Constraint::Length(2), // Score info / last score
-            Constraint::Length(1), // Hand type preview
-            Constraint::Min(0),    // Hand cards
-            Constraint::Length(1), // Card counter
-            Constraint::Length(3), // Action buttons
-            Constraint::Length(1), // Help line
+            Constraint::Length(6),  // Joker bar + counter
+            Constraint::Length(12), // Played cards zone (always present)
+            Constraint::Length(2),  // Score info / last score
+            Constraint::Length(1),  // Hand type preview
+            Constraint::Min(0),     // Hand cards
+            Constraint::Length(1),  // Card counter
+            Constraint::Length(3),  // Action buttons
+            Constraint::Length(1),  // Help line
         ])
         .split(center);
 
