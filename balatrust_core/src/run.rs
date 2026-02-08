@@ -20,6 +20,25 @@ pub enum AntePhase {
     Shop,
 }
 
+/// Itemized breakdown of the reward for beating a blind
+#[derive(Debug, Clone)]
+pub struct RewardBreakdown {
+    /// Base reward from the blind type ($3/$4/$5)
+    pub blind_reward: u32,
+    /// Bonus from remaining hands ($1 each)
+    pub hands_bonus: u32,
+    /// Number of hands remaining (for display)
+    pub hands_remaining: u8,
+    /// Interest earned ($1 per $5 held, max $5)
+    pub interest: u32,
+    /// Money held when interest was calculated (for display)
+    pub money_held: u32,
+    /// Bonus from Golden Jokers ($4 each)
+    pub golden_joker_bonus: u32,
+    /// Total payout
+    pub total: u32,
+}
+
 /// Complete run state
 #[derive(Debug, Clone)]
 pub struct RunState {
@@ -190,21 +209,31 @@ impl RunState {
 
     /// Calculate money earned after beating a blind
     pub fn calculate_reward(&self) -> u32 {
-        let mut reward = self.blind_type.reward();
-        // +$1 per remaining hand
-        reward += self.hands_remaining as u32;
-        // Interest: $1 per $5 held, capped at $5
+        self.calculate_reward_breakdown().total
+    }
+
+    /// Calculate an itemized breakdown of the reward for beating the current blind
+    pub fn calculate_reward_breakdown(&self) -> RewardBreakdown {
+        let blind_reward = self.blind_type.reward();
+        let hands_bonus = self.hands_remaining as u32;
         let interest = (self.money / 5).min(5);
-        reward += interest;
-        // Golden Joker: +$4 each
-        let golden_bonus: u32 = self
+        let golden_joker_bonus: u32 = self
             .jokers
             .iter()
             .filter(|j| j.joker_type == JokerType::GoldenJoker)
             .count() as u32
             * 4;
-        reward += golden_bonus;
-        reward
+        let total = blind_reward + hands_bonus + interest + golden_joker_bonus;
+
+        RewardBreakdown {
+            blind_reward,
+            hands_bonus,
+            hands_remaining: self.hands_remaining,
+            interest,
+            money_held: self.money,
+            golden_joker_bonus,
+            total,
+        }
     }
 
     /// Beat the current blind and collect rewards, then go to shop

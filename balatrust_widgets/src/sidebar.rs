@@ -35,6 +35,10 @@ pub struct SidebarWidget {
     pub ante: u8,
     pub max_ante: u8,
     pub round_number: u8,
+
+    // Mode
+    /// When true, shows a reduced sidebar (no blind banner, blind info, or hand type)
+    pub recap: bool,
 }
 
 impl SidebarWidget {
@@ -72,7 +76,14 @@ impl SidebarWidget {
             ante,
             max_ante,
             round_number,
+            recap: false,
         }
+    }
+
+    /// Set recap mode (simplified sidebar for post-blind screen)
+    pub fn recap(mut self, recap: bool) -> Self {
+        self.recap = recap;
+        self
     }
 }
 
@@ -91,47 +102,51 @@ impl Widget for SidebarWidget {
         let inner = outer_block.inner(area);
         outer_block.render(area, buf);
 
-        // Vertical layout within the sidebar
-        let sections = Layout::vertical([
-            Constraint::Length(3), // Blind name banner
-            Constraint::Length(4), // Blind info (target + reward)
-            Constraint::Length(3), // Round score
-            Constraint::Length(2), // Hand type
-            Constraint::Length(3), // Chips x Mult display
-            Constraint::Length(1), // Separator
-            Constraint::Length(3), // Game info (hands + discards)
-            Constraint::Length(2), // Money
-            Constraint::Min(0),    // Spacer
-            Constraint::Length(2), // Ante / Round meta
-        ])
-        .split(inner);
+        if self.recap {
+            // Recap mode: simplified sidebar (no blind banner, blind info, or hand type)
+            let sections = Layout::vertical([
+                Constraint::Length(3), // Round score
+                Constraint::Length(3), // Chips x Mult display
+                Constraint::Length(1), // Separator
+                Constraint::Length(3), // Game info (hands + discards)
+                Constraint::Length(2), // Money
+                Constraint::Min(0),    // Spacer
+                Constraint::Length(2), // Ante / Round meta
+            ])
+            .split(inner);
 
-        // === 1. Blind Name Banner ===
-        self.render_blind_banner(sections[0], buf);
+            self.render_round_score(sections[0], buf);
+            self.render_chips_mult(sections[1], buf);
+            self.render_separator(sections[2], buf);
+            self.render_game_info(sections[3], buf);
+            self.render_money(sections[4], buf);
+            self.render_meta(sections[6], buf);
+        } else {
+            // Normal mode: full sidebar
+            let sections = Layout::vertical([
+                Constraint::Length(3), // Blind name banner
+                Constraint::Length(4), // Blind info (target + reward)
+                Constraint::Length(3), // Round score
+                Constraint::Length(2), // Hand type
+                Constraint::Length(3), // Chips x Mult display
+                Constraint::Length(1), // Separator
+                Constraint::Length(3), // Game info (hands + discards)
+                Constraint::Length(2), // Money
+                Constraint::Min(0),    // Spacer
+                Constraint::Length(2), // Ante / Round meta
+            ])
+            .split(inner);
 
-        // === 2. Blind Info (target + reward) ===
-        self.render_blind_info(sections[1], buf);
-
-        // === 3. Round Score ===
-        self.render_round_score(sections[2], buf);
-
-        // === 4. Hand Type ===
-        self.render_hand_type(sections[3], buf);
-
-        // === 5. Chips x Mult ===
-        self.render_chips_mult(sections[4], buf);
-
-        // === 6. Separator ===
-        self.render_separator(sections[5], buf);
-
-        // === 7. Game Info ===
-        self.render_game_info(sections[6], buf);
-
-        // === 8. Money ===
-        self.render_money(sections[7], buf);
-
-        // === 9. Ante / Round ===
-        self.render_meta(sections[9], buf);
+            self.render_blind_banner(sections[0], buf);
+            self.render_blind_info(sections[1], buf);
+            self.render_round_score(sections[2], buf);
+            self.render_hand_type(sections[3], buf);
+            self.render_chips_mult(sections[4], buf);
+            self.render_separator(sections[5], buf);
+            self.render_game_info(sections[6], buf);
+            self.render_money(sections[7], buf);
+            self.render_meta(sections[9], buf);
+        }
     }
 }
 
