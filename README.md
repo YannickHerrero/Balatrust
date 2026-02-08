@@ -16,20 +16,39 @@ Balatrust recreates the core run loop of building score through poker hands, jok
 - Keyboard + mouse support for core gameplay and shop interactions
 - Visual polish: animated background, transitions, score popups, and effect pulses
 
-## Quick Start
+## Installation
 
 ### Requirements
 
 - Rust (stable toolchain)
 - Cargo
 
-### Run
+### Install directly from GitHub
+
+```bash
+cargo install --git https://github.com/YannickHerrero/Balatrust.git --bin balatrust
+```
+
+Then run:
+
+```bash
+balatrust
+```
+
+### Run from source (development)
+
+```bash
+git clone https://github.com/YannickHerrero/Balatrust.git
+cd Balatrust
+```
+
+Build and run:
 
 ```bash
 cargo run -p balatrust
 ```
 
-### Test
+### Run tests
 
 ```bash
 cargo test
