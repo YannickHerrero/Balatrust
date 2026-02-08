@@ -11,6 +11,7 @@ use balatrust_core::joker::JokerRarity;
 use balatrust_core::shop::ShopItem;
 use balatrust_core::RunState;
 use balatrust_widgets::consumable_slots::ConsumableSlotsWidget;
+use balatrust_widgets::deck_viewer::DeckViewerState;
 use balatrust_widgets::joker_bar::JokerBarWidget;
 use balatrust_widgets::shop_panel::ShopPanelWidget;
 use balatrust_widgets::sidebar::SidebarWidget;
@@ -48,6 +49,9 @@ pub struct ShopScreen {
     // Popup state
     inspected_item: Option<usize>,
     inspected_joker: Option<usize>,
+
+    // Deck viewer
+    pub deck_viewer: DeckViewerState,
 }
 
 impl ShopScreen {
@@ -63,6 +67,7 @@ impl ShopScreen {
             shop_panel_rect: Rect::default(),
             inspected_item: None,
             inspected_joker: None,
+            deck_viewer: DeckViewerState::new(),
         }
     }
 
@@ -77,6 +82,7 @@ impl ShopScreen {
         self.shop_panel_rect = Rect::default();
         self.inspected_item = None;
         self.inspected_joker = None;
+        self.deck_viewer = DeckViewerState::new();
     }
 
     // ─── Sidebar Data ─────────────────────────────────────────────────
@@ -133,11 +139,27 @@ impl ShopScreen {
         let sidebar = self.sidebar_data(game);
         frame.render_widget(sidebar, columns[0]);
 
-        // ═══ RIGHT SIDEBAR (consumable slots) ═══
-        frame.render_widget(
-            ConsumableSlotsWidget::new(&game.consumables, game.max_consumables),
-            columns[2],
-        );
+        // ═══ RIGHT SIDEBAR (consumable slots + deck preview) ═══
+        {
+            let right_col = columns[2];
+            let right_parts = Layout::vertical([
+                Constraint::Min(0),    // Consumable slots
+                Constraint::Length(7), // Deck preview
+            ])
+            .split(right_col);
+
+            frame.render_widget(
+                ConsumableSlotsWidget::new(&game.consumables, game.max_consumables),
+                right_parts[0],
+            );
+
+            self.deck_viewer.render_preview(
+                frame,
+                right_parts[1],
+                game.deck.total() + game.hand.len(),
+                game.deck.remaining(),
+            );
+        }
 
         // ═══ CENTER AREA ═══
         let center = columns[1];
@@ -154,6 +176,9 @@ impl ShopScreen {
         if let Some(ji) = self.inspected_joker {
             self.render_joker_inspect(frame, game, ji, area);
         }
+
+        // Deck viewer overlay
+        self.deck_viewer.render_overlay(frame, area);
     }
 
     fn render_center(&mut self, frame: &mut Frame, game: &RunState, center: Rect) {
@@ -563,6 +588,14 @@ impl ShopScreen {
             let col = mouse.column;
             let row = mouse.row;
 
+            // Deck viewer overlay/preview click handling
+            if let Some(consumed) = self.deck_viewer.handle_mouse_click(col, row) {
+                if !consumed {
+                    return Some(ScreenAction::OpenDeckViewer);
+                }
+                return None;
+            }
+
             // If item inspect popup is open, check buy button first
             if let Some(idx) = self.inspected_item {
                 if self.hit_test_buy_button(game, col, row) {
@@ -643,6 +676,11 @@ impl Screen for ShopScreen {
     }
 
     fn handle_key(&mut self, key: KeyEvent) -> Option<ScreenAction> {
+        // Deck viewer overlay intercepts all keys when open
+        if self.deck_viewer.handle_key(key.code) {
+            return None;
+        }
+
         // Dismiss popups first
         if let Some(idx) = self.inspected_item {
             if matches!(key.code, KeyCode::Esc | KeyCode::Char('q')) {
@@ -708,6 +746,9 @@ impl Screen for ShopScreen {
                 if self.focus == ShopFocus::Jokers {
                     return Some(ScreenAction::SellJoker(self.joker_cursor));
                 }
+            }
+            KeyCode::Char('v') | KeyCode::Char('V') => {
+                return Some(ScreenAction::OpenDeckViewer);
             }
             _ => {}
         }

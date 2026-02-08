@@ -79,6 +79,23 @@ impl Deck {
         self.cards.push(card);
     }
 
+    /// Read-only access to the draw pile
+    pub fn draw_pile(&self) -> &[PlayingCard] {
+        &self.cards
+    }
+
+    /// Read-only access to the discard pile
+    pub fn discard_pile(&self) -> &[PlayingCard] {
+        &self.discard
+    }
+
+    /// All cards in the deck (draw + discard), not including cards currently in hand
+    pub fn all_cards(&self) -> Vec<PlayingCard> {
+        let mut all = self.cards.clone();
+        all.extend_from_slice(&self.discard);
+        all
+    }
+
     /// Remove a card from the deck (first match)
     pub fn remove_card(&mut self, card: &PlayingCard) -> bool {
         if let Some(pos) = self.cards.iter().position(|c| c == card) {

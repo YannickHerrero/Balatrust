@@ -10,6 +10,7 @@ use balatrust_core::run::BlindOutcome;
 use balatrust_core::RunState;
 use balatrust_widgets::blind_select::BlindSelectWidget;
 use balatrust_widgets::consumable_slots::ConsumableSlotsWidget;
+use balatrust_widgets::deck_viewer::DeckViewerState;
 use balatrust_widgets::joker_bar::JokerBarWidget;
 use balatrust_widgets::sidebar::SidebarWidget;
 use balatrust_widgets::theme::Theme;
@@ -34,6 +35,9 @@ pub struct BlindSelectScreen {
 
     // Popup state
     inspected_joker: Option<usize>,
+
+    // Deck viewer
+    pub deck_viewer: DeckViewerState,
 }
 
 impl BlindSelectScreen {
@@ -46,6 +50,7 @@ impl BlindSelectScreen {
             skip_button_rects: [Rect::default(); 3],
             panel_rect: Rect::default(),
             inspected_joker: None,
+            deck_viewer: DeckViewerState::new(),
         }
     }
 
@@ -100,11 +105,27 @@ impl BlindSelectScreen {
         let sidebar = self.sidebar_data(game);
         frame.render_widget(sidebar, columns[0]);
 
-        // ═══ RIGHT SIDEBAR ═══
-        frame.render_widget(
-            ConsumableSlotsWidget::new(&game.consumables, game.max_consumables),
-            columns[2],
-        );
+        // ═══ RIGHT SIDEBAR (consumable slots + deck preview) ═══
+        {
+            let right_col = columns[2];
+            let right_parts = Layout::vertical([
+                Constraint::Min(0),    // Consumable slots
+                Constraint::Length(7), // Deck preview
+            ])
+            .split(right_col);
+
+            frame.render_widget(
+                ConsumableSlotsWidget::new(&game.consumables, game.max_consumables),
+                right_parts[0],
+            );
+
+            self.deck_viewer.render_preview(
+                frame,
+                right_parts[1],
+                game.deck.total() + game.hand.len(),
+                game.deck.remaining(),
+            );
+        }
 
         // ═══ CENTER AREA ═══
         let center = columns[1];
@@ -114,6 +135,9 @@ impl BlindSelectScreen {
         if let Some(ji) = self.inspected_joker {
             self.render_joker_inspect(frame, game, ji, area);
         }
+
+        // Deck viewer overlay
+        self.deck_viewer.render_overlay(frame, area);
     }
 
     fn render_center(&mut self, frame: &mut Frame, game: &RunState, center: Rect) {
@@ -313,6 +337,14 @@ impl BlindSelectScreen {
             let col = mouse.column;
             let row = mouse.row;
 
+            // Deck viewer overlay/preview click handling
+            if let Some(consumed) = self.deck_viewer.handle_mouse_click(col, row) {
+                if !consumed {
+                    return Some(ScreenAction::OpenDeckViewer);
+                }
+                return None;
+            }
+
             // Dismiss joker popup first
             if self.inspected_joker.is_some() {
                 self.inspected_joker = None;
@@ -391,6 +423,11 @@ impl Screen for BlindSelectScreen {
     }
 
     fn handle_key(&mut self, key: KeyEvent) -> Option<ScreenAction> {
+        // Deck viewer overlay intercepts all keys when open
+        if self.deck_viewer.handle_key(key.code) {
+            return None;
+        }
+
         // Dismiss joker popup first
         if self.inspected_joker.is_some() {
             if matches!(key.code, KeyCode::Esc | KeyCode::Enter | KeyCode::Char(' ')) {
@@ -415,6 +452,9 @@ impl Screen for BlindSelectScreen {
             }
             KeyCode::Char('s') | KeyCode::Char('S') => {
                 return Some(ScreenAction::SkipBlind);
+            }
+            KeyCode::Char('v') | KeyCode::Char('V') => {
+                return Some(ScreenAction::OpenDeckViewer);
             }
             _ => {}
         }

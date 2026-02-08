@@ -580,6 +580,14 @@ impl RunState {
         }
     }
 
+    /// Get all cards in the full deck (draw pile + discard pile + cards currently in hand).
+    /// This represents the complete deck the player owns.
+    pub fn full_deck(&self) -> Vec<PlayingCard> {
+        let mut all = self.deck.all_cards();
+        all.extend_from_slice(&self.hand);
+        all
+    }
+
     /// Get the score target for a specific blind slot (0=Small, 1=Big, 2=Boss)
     pub fn blind_score_target(&self, index: usize) -> u64 {
         let blind_type = match index {

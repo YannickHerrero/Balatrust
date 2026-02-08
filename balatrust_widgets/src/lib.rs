@@ -4,6 +4,7 @@ pub mod blind_select;
 pub mod card;
 pub mod cashout_panel;
 pub mod consumable_slots;
+pub mod deck_viewer;
 pub mod hand;
 pub mod hud;
 pub mod joker_bar;

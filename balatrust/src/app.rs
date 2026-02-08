@@ -347,6 +347,23 @@ impl App {
                     game.selected_indices.clear();
                 }
             }
+            Some(ScreenAction::OpenDeckViewer) => {
+                if let Some(game) = &self.game {
+                    let full_deck = game.full_deck();
+                    match self.phase {
+                        GamePhase::Playing => {
+                            self.play_round.deck_viewer.toggle(full_deck);
+                        }
+                        GamePhase::Shop => {
+                            self.shop.deck_viewer.toggle(full_deck);
+                        }
+                        GamePhase::BlindSelect => {
+                            self.blind_select.deck_viewer.toggle(full_deck);
+                        }
+                        _ => {}
+                    }
+                }
+            }
             None => {}
         }
 
@@ -378,4 +395,5 @@ pub enum ScreenAction {
     SortBySuit,
     SelectAll,
     ClearSelection,
+    OpenDeckViewer,
 }

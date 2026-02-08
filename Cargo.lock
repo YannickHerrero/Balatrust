@@ -98,6 +98,7 @@ name = "balatrust_widgets"
 version = "0.1.0"
 dependencies = [
  "balatrust_core",
+ "crossterm",
  "ratatui",
  "tachyonfx",
 ]

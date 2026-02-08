@@ -13,6 +13,7 @@ use balatrust_core::RunState;
 use balatrust_widgets::action_buttons::{ActionButtonsWidget, ButtonHit};
 use balatrust_widgets::cashout_panel::CashOutPanel;
 use balatrust_widgets::consumable_slots::ConsumableSlotsWidget;
+use balatrust_widgets::deck_viewer::DeckViewerState;
 use balatrust_widgets::hand::HandWidget;
 use balatrust_widgets::joker_bar::JokerBarWidget;
 use balatrust_widgets::played_cards::PlayedCardsWidget;
@@ -90,6 +91,8 @@ pub struct PlayRoundScreen {
     action_buttons_rect: Rect,
     /// Cached rect for the cash-out panel area (for mouse hit-testing in recap mode)
     cashout_panel_rect: Rect,
+    /// Deck viewer state (preview + overlay)
+    pub deck_viewer: DeckViewerState,
 }
 
 impl PlayRoundScreen {
@@ -114,6 +117,7 @@ impl PlayRoundScreen {
             inspected_joker: None,
             action_buttons_rect: Rect::default(),
             cashout_panel_rect: Rect::default(),
+            deck_viewer: DeckViewerState::new(),
         }
     }
 
@@ -137,6 +141,7 @@ impl PlayRoundScreen {
         self.inspected_joker = None;
         self.action_buttons_rect = Rect::default();
         self.cashout_panel_rect = Rect::default();
+        self.deck_viewer = DeckViewerState::new();
     }
 
     /// Returns true if we're currently in a scoring animation
@@ -512,11 +517,28 @@ impl PlayRoundScreen {
         ])
         .split(area);
 
-        // ═══ RIGHT SIDEBAR (consumable slots) ═══
-        frame.render_widget(
-            ConsumableSlotsWidget::new(&game.consumables, game.max_consumables),
-            columns[2],
-        );
+        // ═══ RIGHT SIDEBAR (consumable slots + deck preview) ═══
+        {
+            let right_col = columns[2];
+            // Split right column: consumable slots on top, deck preview at bottom
+            let right_parts = Layout::vertical([
+                Constraint::Min(0),    // Consumable slots
+                Constraint::Length(7), // Deck preview
+            ])
+            .split(right_col);
+
+            frame.render_widget(
+                ConsumableSlotsWidget::new(&game.consumables, game.max_consumables),
+                right_parts[0],
+            );
+
+            self.deck_viewer.render_preview(
+                frame,
+                right_parts[1],
+                game.deck.total() + game.hand.len(),
+                game.deck.remaining(),
+            );
+        }
 
         if self.blind_just_beaten {
             // ═══ RECAP MODE ═══
@@ -542,6 +564,9 @@ impl PlayRoundScreen {
         if let Some(ji) = self.inspected_joker {
             self.render_joker_inspect(frame, game, ji, area);
         }
+
+        // Deck viewer overlay (on top of everything else)
+        self.deck_viewer.render_overlay(frame, area);
     }
 
     /// Render center area (unified layout — played cards zone always visible)
@@ -678,7 +703,9 @@ impl PlayRoundScreen {
                 Span::styled("S", Style::default().fg(Theme::GOLD)),
                 Span::styled("] Rank  [", Style::default().fg(Theme::DIM_TEXT)),
                 Span::styled("T", Style::default().fg(Theme::GOLD)),
-                Span::styled("] Suit", Style::default().fg(Theme::DIM_TEXT)),
+                Span::styled("] Suit  [", Style::default().fg(Theme::DIM_TEXT)),
+                Span::styled("V", Style::default().fg(Theme::GOLD)),
+                Span::styled("] Deck", Style::default().fg(Theme::DIM_TEXT)),
             ]))
         };
         frame.render_widget(help.alignment(Alignment::Center), rows[7]);
@@ -991,6 +1018,11 @@ impl PlayRoundScreen {
     // ─── Input Handling ──────────────────────────────────────────────
 
     pub fn handle_key(&mut self, key: KeyEvent) -> Option<ScreenAction> {
+        // Deck viewer overlay intercepts all keys when open
+        if self.deck_viewer.handle_key(key.code) {
+            return None;
+        }
+
         // If blind is beaten, wait for enter
         if self.blind_just_beaten {
             if key.code == KeyCode::Enter {
@@ -1054,6 +1086,9 @@ impl PlayRoundScreen {
             KeyCode::Char('c') | KeyCode::Char('C') => {
                 return Some(ScreenAction::ClearSelection);
             }
+            KeyCode::Char('v') | KeyCode::Char('V') => {
+                return Some(ScreenAction::OpenDeckViewer);
+            }
             _ => {}
         }
         None
@@ -1068,6 +1103,15 @@ impl PlayRoundScreen {
             MouseEventKind::Down(MouseButton::Left) => {
                 let col = mouse.column;
                 let row = mouse.row;
+
+                // Deck viewer overlay/preview click handling
+                if let Some(consumed) = self.deck_viewer.handle_mouse_click(col, row) {
+                    if !consumed {
+                        // Preview was clicked — open the deck viewer
+                        return Some(ScreenAction::OpenDeckViewer);
+                    }
+                    return None;
+                }
 
                 // In recap mode, check cash-out button click
                 if self.blind_just_beaten {
