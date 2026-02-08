@@ -20,6 +20,19 @@ pub enum AntePhase {
     Shop,
 }
 
+/// Outcome of a blind within an ante (for display on blind select screen)
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum BlindOutcome {
+    /// Not yet reached
+    Upcoming,
+    /// Currently the active blind to play
+    Active,
+    /// Was skipped by the player
+    Skipped,
+    /// Was beaten by the player
+    Beaten,
+}
+
 /// Itemized breakdown of the reward for beating a blind
 #[derive(Debug, Clone)]
 pub struct RewardBreakdown {
@@ -71,6 +84,9 @@ pub struct RunState {
     /// Blinds beaten this ante (to track progression)
     pub blinds_beaten: u8,
 
+    /// Per-blind outcomes for the current ante: [Small, Big, Boss]
+    pub blind_outcomes: [BlindOutcome; 3],
+
     /// Shop state
     pub shop: Option<Shop>,
 }
@@ -111,6 +127,11 @@ impl RunState {
             boss_blind: boss,
             rng,
             blinds_beaten: 0,
+            blind_outcomes: [
+                BlindOutcome::Active,
+                BlindOutcome::Upcoming,
+                BlindOutcome::Upcoming,
+            ],
             shop: None,
         }
     }
@@ -167,6 +188,9 @@ impl RunState {
 
     /// Skip the current blind
     pub fn skip_blind(&mut self) {
+        // Mark current blind as skipped
+        let blind_index = self.current_blind_index();
+        self.blind_outcomes[blind_index] = BlindOutcome::Skipped;
         self.advance_blind();
     }
 
@@ -242,6 +266,10 @@ impl RunState {
         self.money += reward;
         self.blinds_beaten += 1;
 
+        // Mark current blind as beaten
+        let blind_index = self.current_blind_index();
+        self.blind_outcomes[blind_index] = BlindOutcome::Beaten;
+
         // Egg joker: +$3 sell value per round
         for joker in &mut self.jokers {
             if joker.joker_type == JokerType::Egg {
@@ -274,9 +302,11 @@ impl RunState {
         match self.blind_type {
             BlindType::Small => {
                 self.blind_type = BlindType::Big;
+                self.blind_outcomes[1] = BlindOutcome::Active;
             }
             BlindType::Big => {
                 self.blind_type = BlindType::Boss(self.boss_blind);
+                self.blind_outcomes[2] = BlindOutcome::Active;
             }
             BlindType::Boss(_) => {
                 // Completed the ante, advance
@@ -284,6 +314,12 @@ impl RunState {
                 self.blinds_beaten = 0;
                 self.boss_blind = Self::random_boss(&mut self.rng);
                 self.blind_type = BlindType::Small;
+                // Reset outcomes for the new ante
+                self.blind_outcomes = [
+                    BlindOutcome::Active,
+                    BlindOutcome::Upcoming,
+                    BlindOutcome::Upcoming,
+                ];
             }
         }
         self.ante_phase = AntePhase::BlindSelect;
@@ -533,6 +569,25 @@ impl RunState {
             BlindType::Big => 2,
             BlindType::Boss(_) => 3,
         }
+    }
+
+    /// Get the 0-based index of the current blind (0=Small, 1=Big, 2=Boss)
+    pub fn current_blind_index(&self) -> usize {
+        match self.blind_type {
+            BlindType::Small => 0,
+            BlindType::Big => 1,
+            BlindType::Boss(_) => 2,
+        }
+    }
+
+    /// Get the score target for a specific blind slot (0=Small, 1=Big, 2=Boss)
+    pub fn blind_score_target(&self, index: usize) -> u64 {
+        let blind_type = match index {
+            0 => BlindType::Small,
+            1 => BlindType::Big,
+            _ => BlindType::Boss(self.boss_blind),
+        };
+        blind::score_target(self.ante, &blind_type)
     }
 
     /// Use a tarot card (apply enhancement to selected cards)

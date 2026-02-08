@@ -41,6 +41,8 @@ pub struct SidebarWidget {
     pub recap: bool,
     /// When true, shows shop mode sidebar (SHOP banner replacing blind banner)
     pub shop: bool,
+    /// When true, shows blind-select mode sidebar (title replacing blind banner)
+    pub blind_select: bool,
 }
 
 impl SidebarWidget {
@@ -80,6 +82,7 @@ impl SidebarWidget {
             round_number,
             recap: false,
             shop: false,
+            blind_select: false,
         }
     }
 
@@ -92,6 +95,12 @@ impl SidebarWidget {
     /// Set shop mode (SHOP banner replacing blind banner)
     pub fn shop(mut self, shop: bool) -> Self {
         self.shop = shop;
+        self
+    }
+
+    /// Set blind-select mode (title replacing blind banner)
+    pub fn blind_select(mut self, blind_select: bool) -> Self {
+        self.blind_select = blind_select;
         self
     }
 }
@@ -111,7 +120,28 @@ impl Widget for SidebarWidget {
         let inner = outer_block.inner(area);
         outer_block.render(area, buf);
 
-        if self.shop {
+        if self.blind_select {
+            // Blind-select mode: title banner, no blind info or hand type
+            let sections = Layout::vertical([
+                Constraint::Length(4), // Title ("Choose your next Blind")
+                Constraint::Length(3), // Round score
+                Constraint::Length(3), // Chips x Mult display
+                Constraint::Length(1), // Separator
+                Constraint::Length(3), // Game info (hands + discards)
+                Constraint::Length(2), // Money
+                Constraint::Min(0),    // Spacer
+                Constraint::Length(2), // Ante / Round meta
+            ])
+            .split(inner);
+
+            self.render_blind_select_title(sections[0], buf);
+            self.render_round_score(sections[1], buf);
+            self.render_chips_mult(sections[2], buf);
+            self.render_separator(sections[3], buf);
+            self.render_game_info(sections[4], buf);
+            self.render_money(sections[5], buf);
+            self.render_meta(sections[7], buf);
+        } else if self.shop {
             // Shop mode: SHOP banner, no blind info or hand type
             let sections = Layout::vertical([
                 Constraint::Length(3), // SHOP banner
@@ -183,6 +213,45 @@ impl Widget for SidebarWidget {
 }
 
 impl SidebarWidget {
+    fn render_blind_select_title(&self, area: Rect, buf: &mut Buffer) {
+        if area.height < 2 {
+            return;
+        }
+
+        let padded = Rect::new(
+            area.x + 1,
+            area.y,
+            area.width.saturating_sub(2),
+            area.height,
+        );
+
+        // Line 1: "Choose your"
+        let line1 = "Choose your";
+        let x1 = padded.x + padded.width.saturating_sub(line1.len() as u16) / 2;
+        buf.set_string(
+            x1,
+            padded.y + 1,
+            line1,
+            Style::default()
+                .fg(Theme::BRIGHT_TEXT)
+                .add_modifier(Modifier::BOLD),
+        );
+
+        // Line 2: "next Blind"
+        if padded.height >= 3 {
+            let line2 = "next Blind";
+            let x2 = padded.x + padded.width.saturating_sub(line2.len() as u16) / 2;
+            buf.set_string(
+                x2,
+                padded.y + 2,
+                line2,
+                Style::default()
+                    .fg(Theme::BRIGHT_TEXT)
+                    .add_modifier(Modifier::BOLD),
+            );
+        }
+    }
+
     fn render_shop_banner(&self, area: Rect, buf: &mut Buffer) {
         if area.height < 1 {
             return;

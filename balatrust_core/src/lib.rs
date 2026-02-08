@@ -14,5 +14,5 @@ pub use consumable::{Consumable, ConsumableType};
 pub use deck::Deck;
 pub use hand::PokerHand;
 pub use joker::{Joker, JokerRarity, JokerType};
-pub use run::{RewardBreakdown, RunState};
+pub use run::{BlindOutcome, RewardBreakdown, RunState};
 pub use scoring::{ScoreResult, ScoreStep};

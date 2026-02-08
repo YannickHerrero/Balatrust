@@ -115,6 +115,10 @@ impl App {
                 let action = self.play_round.handle_mouse(mouse, &self.game);
                 self.process_action(action);
             }
+            GamePhase::BlindSelect => {
+                let action = self.blind_select.handle_mouse(mouse, &self.game);
+                self.process_action(action);
+            }
             GamePhase::Shop => {
                 let action = self.shop.handle_mouse(mouse, &self.game);
                 self.process_action(action);
@@ -181,20 +185,29 @@ impl App {
             Some(ScreenAction::Quit) => return true,
             Some(ScreenAction::NewGame) => {
                 self.game = Some(RunState::new());
+                self.blind_select.cursor = 0; // Active blind is always 0 at start
                 self.phase = GamePhase::BlindSelect;
             }
             Some(ScreenAction::StartBlind) => {
                 if let Some(game) = &mut self.game {
-                    game.start_blind();
-                    self.play_round.reset();
-                    self.phase = GamePhase::Playing;
+                    // Only allow starting the currently active blind
+                    let active = game.current_blind_index();
+                    if self.blind_select.cursor == active {
+                        game.start_blind();
+                        self.play_round.reset();
+                        self.phase = GamePhase::Playing;
+                    }
                 }
             }
             Some(ScreenAction::SkipBlind) => {
                 if let Some(game) = &mut self.game {
-                    game.skip_blind();
-                    self.blind_select.cursor = 0;
-                    // Stay on blind select
+                    // Only allow skipping the active blind, and only Small/Big
+                    let active = game.current_blind_index();
+                    if self.blind_select.cursor == active && game.blind_type.can_skip() {
+                        game.skip_blind();
+                        // Move cursor to the new active blind
+                        self.blind_select.cursor = game.current_blind_index();
+                    }
                 }
             }
             Some(ScreenAction::PlayHand) => {
@@ -271,7 +284,8 @@ impl App {
             Some(ScreenAction::LeaveShop) => {
                 if let Some(game) = &mut self.game {
                     game.leave_shop();
-                    self.blind_select.cursor = 0;
+                    // Set cursor to the new active blind
+                    self.blind_select.cursor = game.current_blind_index();
                     self.phase = GamePhase::BlindSelect;
                 }
             }
