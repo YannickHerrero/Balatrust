@@ -11,6 +11,7 @@ use balatrust_core::scoring::{ScoreResult, ScoreStep};
 use balatrust_core::PlayingCard;
 use balatrust_core::RunState;
 use balatrust_widgets::action_buttons::{ActionButtonsWidget, ButtonHit};
+use balatrust_widgets::cashout_panel::CashOutPanel;
 use balatrust_widgets::consumable_slots::ConsumableSlotsWidget;
 use balatrust_widgets::hand::HandWidget;
 use balatrust_widgets::joker_bar::JokerBarWidget;
@@ -87,6 +88,8 @@ pub struct PlayRoundScreen {
     inspected_joker: Option<usize>,
     /// Cached rect for the action buttons area (for mouse hit-testing)
     action_buttons_rect: Rect,
+    /// Cached rect for the cash-out panel area (for mouse hit-testing in recap mode)
+    cashout_panel_rect: Rect,
 }
 
 impl PlayRoundScreen {
@@ -110,6 +113,7 @@ impl PlayRoundScreen {
             anim_hand_name: String::new(),
             inspected_joker: None,
             action_buttons_rect: Rect::default(),
+            cashout_panel_rect: Rect::default(),
         }
     }
 
@@ -132,6 +136,7 @@ impl PlayRoundScreen {
         self.anim_hand_name.clear();
         self.inspected_joker = None;
         self.action_buttons_rect = Rect::default();
+        self.cashout_panel_rect = Rect::default();
     }
 
     /// Returns true if we're currently in a scoring animation
@@ -507,30 +512,35 @@ impl PlayRoundScreen {
         ])
         .split(area);
 
-        // ═══ LEFT SIDEBAR ═══
-        let sidebar = self.sidebar_data(game);
-        frame.render_widget(sidebar, columns[0]);
-
         // ═══ RIGHT SIDEBAR (consumable slots) ═══
         frame.render_widget(
             ConsumableSlotsWidget::new(&game.consumables, game.max_consumables),
             columns[2],
         );
 
-        // ═══ CENTER AREA ═══
-        let center = columns[1];
-        self.render_center(frame, game, center);
+        if self.blind_just_beaten {
+            // ═══ RECAP MODE ═══
+            // Sidebar in recap mode (simplified)
+            let sidebar = self.sidebar_data(game).recap(true);
+            frame.render_widget(sidebar, columns[0]);
+
+            // Center: joker bar + cash-out panel
+            let center = columns[1];
+            self.render_center_recap(frame, game, center);
+        } else {
+            // ═══ NORMAL / SCORING MODE ═══
+            let sidebar = self.sidebar_data(game);
+            frame.render_widget(sidebar, columns[0]);
+
+            let center = columns[1];
+            self.render_center(frame, game, center);
+        }
 
         // ═══ OVERLAYS (on top of everything) ═══
 
         // Joker inspect popup
         if let Some(ji) = self.inspected_joker {
             self.render_joker_inspect(frame, game, ji, area);
-        }
-
-        // Blind beaten popup
-        if self.blind_just_beaten {
-            self.render_beaten_popup(frame, game, area);
         }
     }
 
@@ -672,6 +682,41 @@ impl PlayRoundScreen {
             ]))
         };
         frame.render_widget(help.alignment(Alignment::Center), rows[7]);
+    }
+
+    /// Render center area in recap mode (after blind is beaten)
+    fn render_center_recap(&mut self, frame: &mut Frame, game: &RunState, center: Rect) {
+        // Recap layout:
+        // ┌─────────────────────────────────────┐
+        // │ Joker bar (6)                        │
+        // │ Cash-out panel (flex)                │
+        // │ Help line (1)                        │
+        // └─────────────────────────────────────┘
+
+        let rows = Layout::vertical([
+            Constraint::Length(6), // Joker bar + counter
+            Constraint::Min(0),    // Cash-out panel
+            Constraint::Length(1), // Help line
+        ])
+        .split(center);
+
+        // === Joker bar (same as normal) ===
+        self.render_joker_bar(frame, game, rows[0]);
+
+        // === Cash-out panel ===
+        self.cashout_panel_rect = rows[1];
+        let breakdown = game.calculate_reward_breakdown();
+        let panel = CashOutPanel::new(game.blind_type.name(), game.score_target, breakdown);
+        frame.render_widget(panel, rows[1]);
+
+        // === Help line ===
+        let help = Paragraph::new(Line::from(vec![
+            Span::styled("[", Style::default().fg(Theme::DIM_TEXT)),
+            Span::styled("Enter", Style::default().fg(Theme::GOLD)),
+            Span::styled("] Cash Out", Style::default().fg(Theme::DIM_TEXT)),
+        ]))
+        .alignment(Alignment::Center);
+        frame.render_widget(help, rows[2]);
     }
 
     // ─── Sub-render helpers ───────────────────────────────────────────
@@ -943,34 +988,6 @@ impl PlayRoundScreen {
         }
     }
 
-    fn render_beaten_popup(&self, frame: &mut Frame, game: &RunState, area: Rect) {
-        let popup = balatrust_widgets::popup::PopupWidget::new("Blind Defeated!")
-            .line(
-                format!("Score: {}", game.round_score),
-                Style::default()
-                    .fg(Theme::SCORE_COLOR)
-                    .add_modifier(Modifier::BOLD),
-            )
-            .line(
-                format!("Target: {}", game.score_target),
-                Style::default().fg(Theme::MUTED_TEXT),
-            )
-            .line(String::new(), Style::default())
-            .line(
-                format!("Reward: ${}", game.calculate_reward()),
-                Style::default()
-                    .fg(Theme::MONEY_COLOR)
-                    .add_modifier(Modifier::BOLD),
-            )
-            .line(String::new(), Style::default())
-            .line(
-                "[Enter] Continue".to_string(),
-                Style::default().fg(Theme::GOLD),
-            )
-            .size(50, 40);
-        frame.render_widget(popup, area);
-    }
-
     // ─── Input Handling ──────────────────────────────────────────────
 
     pub fn handle_key(&mut self, key: KeyEvent) -> Option<ScreenAction> {
@@ -1047,14 +1064,44 @@ impl PlayRoundScreen {
         mouse: MouseEvent,
         _game: &Option<RunState>,
     ) -> Option<ScreenAction> {
-        if self.blind_just_beaten {
-            return None;
-        }
-
         match mouse.kind {
             MouseEventKind::Down(MouseButton::Left) => {
                 let col = mouse.column;
                 let row = mouse.row;
+
+                // In recap mode, check cash-out button click
+                if self.blind_just_beaten {
+                    // Joker inspect still works during recap
+                    for (i, rect) in self.joker_rects.iter().enumerate() {
+                        if rect.width > 0
+                            && col >= rect.x
+                            && col < rect.x + rect.width
+                            && row >= rect.y
+                            && row < rect.y + rect.height
+                        {
+                            if self.inspected_joker == Some(i) {
+                                self.inspected_joker = None;
+                            } else {
+                                self.inspected_joker = Some(i);
+                            }
+                            return None;
+                        }
+                    }
+
+                    if self.inspected_joker.is_some() {
+                        self.inspected_joker = None;
+                        return None;
+                    }
+
+                    // Check cash-out button
+                    if CashOutPanel::hit_test_cashout(self.cashout_panel_rect, col, row) {
+                        self.blind_just_beaten = false;
+                        self.last_score = None;
+                        return Some(ScreenAction::BeatBlind);
+                    }
+
+                    return None;
+                }
 
                 // Check if click is on a joker (works during scoring too)
                 for (i, rect) in self.joker_rects.iter().enumerate() {
