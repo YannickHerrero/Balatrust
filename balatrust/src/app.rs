@@ -356,6 +356,7 @@ impl App {
 
 /// Actions that screens can return
 #[derive(Debug, Clone)]
+#[allow(dead_code)]
 pub enum ScreenAction {
     Quit,
     NewGame,
