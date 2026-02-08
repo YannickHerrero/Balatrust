@@ -39,6 +39,8 @@ pub struct SidebarWidget {
     // Mode
     /// When true, shows a reduced sidebar (no blind banner, blind info, or hand type)
     pub recap: bool,
+    /// When true, shows shop mode sidebar (SHOP banner replacing blind banner)
+    pub shop: bool,
 }
 
 impl SidebarWidget {
@@ -77,12 +79,19 @@ impl SidebarWidget {
             max_ante,
             round_number,
             recap: false,
+            shop: false,
         }
     }
 
     /// Set recap mode (simplified sidebar for post-blind screen)
     pub fn recap(mut self, recap: bool) -> Self {
         self.recap = recap;
+        self
+    }
+
+    /// Set shop mode (SHOP banner replacing blind banner)
+    pub fn shop(mut self, shop: bool) -> Self {
+        self.shop = shop;
         self
     }
 }
@@ -102,7 +111,30 @@ impl Widget for SidebarWidget {
         let inner = outer_block.inner(area);
         outer_block.render(area, buf);
 
-        if self.recap {
+        if self.shop {
+            // Shop mode: SHOP banner, no blind info or hand type
+            let sections = Layout::vertical([
+                Constraint::Length(3), // SHOP banner
+                Constraint::Length(1), // Subtitle
+                Constraint::Length(3), // Round score
+                Constraint::Length(3), // Chips x Mult display
+                Constraint::Length(1), // Separator
+                Constraint::Length(3), // Game info (hands + discards)
+                Constraint::Length(2), // Money
+                Constraint::Min(0),    // Spacer
+                Constraint::Length(2), // Ante / Round meta
+            ])
+            .split(inner);
+
+            self.render_shop_banner(sections[0], buf);
+            self.render_shop_subtitle(sections[1], buf);
+            self.render_round_score(sections[2], buf);
+            self.render_chips_mult(sections[3], buf);
+            self.render_separator(sections[4], buf);
+            self.render_game_info(sections[5], buf);
+            self.render_money(sections[6], buf);
+            self.render_meta(sections[8], buf);
+        } else if self.recap {
             // Recap mode: simplified sidebar (no blind banner, blind info, or hand type)
             let sections = Layout::vertical([
                 Constraint::Length(3), // Round score
@@ -151,6 +183,59 @@ impl Widget for SidebarWidget {
 }
 
 impl SidebarWidget {
+    fn render_shop_banner(&self, area: Rect, buf: &mut Buffer) {
+        if area.height < 1 {
+            return;
+        }
+
+        let color = Theme::MULT_COLOR;
+        let padded = Rect::new(
+            area.x + 1,
+            area.y,
+            area.width.saturating_sub(2),
+            area.height,
+        );
+
+        // Top decoration line
+        if padded.height >= 1 {
+            let deco: String = "\u{2500}".repeat(padded.width as usize);
+            buf.set_string(padded.x, padded.y, &deco, Style::default().fg(color));
+        }
+
+        // "SHOP" centered
+        if padded.height >= 2 {
+            let name = "SHOP";
+            let x = padded.x + padded.width.saturating_sub(name.len() as u16) / 2;
+            buf.set_string(
+                x,
+                padded.y + 1,
+                name,
+                Style::default().fg(color).add_modifier(Modifier::BOLD),
+            );
+        }
+
+        // Bottom decoration line
+        if padded.height >= 3 {
+            let deco: String = "\u{2500}".repeat(padded.width as usize);
+            buf.set_string(padded.x, padded.y + 2, &deco, Style::default().fg(color));
+        }
+    }
+
+    fn render_shop_subtitle(&self, area: Rect, buf: &mut Buffer) {
+        if area.height < 1 {
+            return;
+        }
+        let text = "Improve your run!";
+        let padded = Rect::new(
+            area.x + 1,
+            area.y,
+            area.width.saturating_sub(2),
+            area.height,
+        );
+        let x = padded.x + padded.width.saturating_sub(text.len() as u16) / 2;
+        buf.set_string(x, padded.y, text, Style::default().fg(Theme::MUTED_TEXT));
+    }
+
     fn render_blind_banner(&self, area: Rect, buf: &mut Buffer) {
         if area.height < 1 {
             return;

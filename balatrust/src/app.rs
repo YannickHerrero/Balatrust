@@ -115,6 +115,10 @@ impl App {
                 let action = self.play_round.handle_mouse(mouse, &self.game);
                 self.process_action(action);
             }
+            GamePhase::Shop => {
+                let action = self.shop.handle_mouse(mouse, &self.game);
+                self.process_action(action);
+            }
             _ => {}
         }
     }
